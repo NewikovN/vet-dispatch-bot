@@ -1,6 +1,6 @@
 import type { Messenger, RequestCard } from '../ports/Messenger.js';
 import type { Request } from './models.js';
-import { canTakeRequest } from './models.js';
+import { canTakeRequest, canApprove, canReject } from './models.js';
 import {
   createRequest,
   getRequest,
@@ -9,6 +9,7 @@ import {
   approveRequest,
   rejectRequest,
   setGroupMessageId,
+  setManageMessageId,
   type NewRequest,
 } from '../db/requestsRepo.js';
 import { getUser } from '../db/usersRepo.js';
@@ -16,7 +17,21 @@ import { getCityChats } from '../db/cityChatsRepo.js';
 import { askAmount, clearAwait } from './pendingInput.js';
 import { formatMoney } from './money.js';
 
-function toCard(req: Request, doctorName?: string): RequestCard {
+/** Рабочий чат врачей: карточка ВСЕГДА нейтральная — без имени принявшего и без суммы чека */
+function toGroupCard(req: Request): RequestCard {
+  return {
+    requestId: req.id,
+    date: req.date,
+    city: req.city,
+    animal: req.animal,
+    problem: req.problem,
+    priceNote: req.priceNote,
+    status: req.status,
+  };
+}
+
+/** Управленческий чат: карточка с деталями — кто принял, сумма чека */
+function toManageCard(req: Request, doctorName?: string): RequestCard {
   return {
     requestId: req.id,
     date: req.date,
@@ -30,7 +45,7 @@ function toCard(req: Request, doctorName?: string): RequestCard {
   };
 }
 
-/** Диспетчер создал заявку → публикуем в рабочий и управленческий чаты города */
+/** Диспетчер создал заявку → публикуем нейтральную карточку в рабочий чат города */
 export async function publishRequest(
   messenger: Messenger,
   data: NewRequest,
@@ -43,14 +58,13 @@ export async function publishRequest(
   const id = createRequest(data);
   const req = getRequest(id)!;
 
-  // Рабочий чат врачей — нейтральная карточка с кнопкой «Принять»
-  const workMsgId = await messenger.sendGroupCard(chats.workChatId, toCard(req));
+  const workMsgId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(req));
   setGroupMessageId(id, workMsgId);
 
   return { ok: true };
 }
 
-/** Врач нажал «Принять» */
+/** Врач нажал «Принять». Контакты клиента НЕ отправляются — только после одобрения. */
 export async function takeRequest(
   messenger: Messenger,
   requestId: number,
@@ -83,20 +97,107 @@ export async function takeRequest(
 
   const req = getRequest(requestId)!;
 
+  // Рабочая карточка остаётся нейтральной — врачи не видят, кто принял заявку
   if (req.groupMessageId) {
-    await messenger.editGroupCard(chatId, req.groupMessageId, toCard(req, doctor!.displayName));
+    await messenger.editGroupCard(chatId, req.groupMessageId, toGroupCard(req));
   }
 
-  await messenger.sendPrivate(
-    doctor!.dmChatId,
-    `Заявка №${req.id} ваша.\n\nКонтакты клиента:\n${req.clientContacts}`,
-    req.id,
-  );
+  // Управленческая карточка — с деталями, для решения об одобрении
+  const chats = getCityChats(req.city);
+  if (chats) {
+    const manageMsgId = await messenger.sendManageCard(chats.manageChatId, toManageCard(req, doctor!.displayName));
+    setManageMessageId(req.id, manageMsgId);
+  }
 
-  await messenger.answerCallback(eventId, 'Заявка ваша, контакты в личке');
+  await messenger.answerCallback(eventId, 'Заявка принята, ждите одобрения управляющего');
 }
 
-/** Врач нажал «Закрыть» → спрашиваем сумму */
+/** Управляющий/директор одобрил приём. Единственное место, откуда контакты уходят врачу. */
+export async function approveTake(
+  messenger: Messenger,
+  requestId: number,
+  approverId: string,
+  eventId: string,
+): Promise<void> {
+  const approver = getUser(approverId);
+
+  if (!canApprove(approver?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Одобрять приём заявок может только управляющий или директор');
+    return;
+  }
+
+  const result = approveRequest(requestId);
+
+  if (result === 'not_taken') {
+    await messenger.answerCallback(eventId, 'Заявку нельзя одобрить в текущем статусе');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Заявка не найдена');
+    return;
+  }
+
+  const req = getRequest(requestId)!;
+  const doctor = getUser(req.assignedDoctorId!);
+  const chats = getCityChats(req.city);
+
+  if (chats && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req, doctor?.displayName));
+  }
+
+  if (doctor?.dmChatId) {
+    await messenger.sendPrivate(
+      doctor.dmChatId,
+      `Заявка №${req.id} одобрена.\n\nКонтакты клиента:\n${req.clientContacts}`,
+      req.id,
+    );
+  }
+
+  await messenger.answerCallback(eventId, 'Заявка одобрена, контакты отправлены врачу');
+}
+
+/** Управляющий/директор отклонил приём → заявка снова свободна */
+export async function rejectTake(
+  messenger: Messenger,
+  requestId: number,
+  approverId: string,
+  eventId: string,
+): Promise<void> {
+  const approver = getUser(approverId);
+
+  if (!canReject(approver?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Отклонять приём заявок может только управляющий или директор');
+    return;
+  }
+
+  const result = rejectRequest(requestId);
+
+  if (result === 'not_taken') {
+    await messenger.answerCallback(eventId, 'Заявку нельзя отклонить в текущем статусе');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Заявка не найдена');
+    return;
+  }
+
+  const req = getRequest(requestId)!;
+  const chats = getCityChats(req.city);
+
+  // Рабочая карточка снова открыта — кнопка «Принять» доступна другим врачам
+  if (chats && req.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
+  }
+
+  // Управленческая карточка тоже возвращается в нейтральное состояние (без принявшего врача)
+  if (chats && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
+  }
+
+  await messenger.answerCallback(eventId, 'Заявка отклонена и снова открыта');
+}
+
+/** Врач нажал «Закрыть» → спрашиваем сумму. Доступно только после одобрения. */
 export async function startClosing(
   messenger: Messenger,
   requestId: number,
@@ -109,8 +210,8 @@ export async function startClosing(
     await messenger.answerCallback(eventId, 'Это не ваша заявка');
     return;
   }
-  if (req.status !== 'taken') {
-    await messenger.answerCallback(eventId, 'Заявка уже закрыта');
+  if (req.status !== 'approved') {
+    await messenger.answerCallback(eventId, 'Заявка ещё не одобрена или уже закрыта');
     return;
   }
 
@@ -121,7 +222,7 @@ export async function startClosing(
   await messenger.sendPrivate(doctor.dmChatId!, `Заявка №${requestId}. Введите сумму чека в рублях, например: 1500`);
 }
 
-/** Врач прислал сумму */
+/** Врач прислал сумму → закрытие возможно только из статуса approved */
 export async function finishClosing(
   messenger: Messenger,
   requestId: number,
@@ -140,9 +241,16 @@ export async function finishClosing(
 
   clearAwait(doctorId);
   const req = getRequest(requestId)!;
+  const chats = getCityChats(req.city);
 
-  if (req.groupMessageId) {
-    await messenger.editGroupCard(chatId, req.groupMessageId, toCard(req, doctor.displayName));
+  // Рабочая карточка — нейтрально «закрыто», без суммы и имени врача
+  if (chats && req.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
+  }
+
+  // Управленческая карточка — с итоговой суммой чека
+  if (chats && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req, doctor.displayName));
   }
 
   await messenger.sendPrivate(doctor.dmChatId!, `Заявка №${requestId} закрыта. Чек: ${formatMoney(amount)}`);

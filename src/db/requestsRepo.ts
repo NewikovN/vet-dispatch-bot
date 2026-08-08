@@ -69,13 +69,13 @@ export function claimRequest(id: number, doctorId: string): ClaimResult {
   return getRequest(id) ? 'already_taken' : 'not_found';
 }
 
-export type CloseResult = 'ok' | 'not_taken' | 'wrong_doctor' | 'not_found';
+export type CloseResult = 'ok' | 'not_approved' | 'wrong_doctor' | 'not_found';
 
 export function closeRequest(id: number, doctorId: string, checkAmount: number): CloseResult {
   const info = db.prepare(`
     UPDATE requests
     SET status = 'closed', check_amount = ?, closed_at = ?
-    WHERE id = ? AND status = 'taken' AND assigned_doctor_id = ?
+    WHERE id = ? AND status = 'approved' AND assigned_doctor_id = ?
   `).run(checkAmount, new Date().toISOString(), id, doctorId);
 
   if (info.changes === 1) return 'ok';
@@ -83,7 +83,7 @@ export function closeRequest(id: number, doctorId: string, checkAmount: number):
   const req = getRequest(id);
   if (!req) return 'not_found';
   if (req.assignedDoctorId !== doctorId) return 'wrong_doctor';
-  return 'not_taken';
+  return 'not_approved';
 }
 
 export type ApproveResult = 'ok' | 'not_taken' | 'not_found';

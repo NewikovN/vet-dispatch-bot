@@ -17,6 +17,12 @@ export interface Messenger {
   /** Перерисовать карточку в беседе (убрать кнопку, показать врача). */
   editGroupCard(chatId: string, messageId: string, card: RequestCard): Promise<void>;
 
+  /** Отправить карточку заявки в управленческий чат (с деталями: врач, сумма). Возвращает id сообщения. */
+  sendManageCard(chatId: string, card: RequestCard): Promise<string>;
+
+  /** Перерисовать карточку в управленческом чате. */
+  editManageCard(chatId: string, messageId: string, card: RequestCard): Promise<void>;
+
   /** Личное сообщение — сюда уходят контакты клиента. */
   sendPrivate(dmChatId: string, text: string, requestId?: number): Promise<void>;
 
