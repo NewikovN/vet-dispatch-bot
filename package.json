@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx watch src/app.ts"
+    "dev": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx watch src/app.ts",
+    "dev:max": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx watch src/app-max.ts"
   },
   "license": "ISC",
   "dependencies": {

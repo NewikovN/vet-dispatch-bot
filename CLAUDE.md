@@ -62,3 +62,13 @@
 - Запуск: `pnpm dev`
 - Проверка типов: `pnpm exec tsc --noEmit`
 - Тест гонки: `pnpm exec tsx test-claim.ts`
+
+## Особенности @maxhub/max-bot-api (грабли)
+- `editMessage` адресует сообщение глобально по `messageId`, `chat_id` не нужен (в `MaxAdapter` параметр `chatId` в `editGroupCard`/`editManageCard` не используется, помечен `_`).
+- Личка шлётся через `sendMessageToUser(userId)`. В нашей модели `dmChatId` ХРАНИТ MAX `userId` (не chatId лички). При онбординге (`bot_started`) сохраняем `userId` в `dmChatId`.
+- id отправленного сообщения = `message.body.mid`.
+- Баг библиотеки: в событии `message_created` тип `ctx.user` резолвится как `undefined`, хотя рантайм подставляет `message.sender`. Брать отправителя напрямую: `ctx.message.sender?.user_id` и `.name`.
+- Личку от группы отличаем по `ctx.message.recipient.chat_type === 'dialog'` (значения: `'dialog' | 'chat' | 'channel'`).
+- Кнопки: `payload` — строка формата `"действие:id"` (`take`/`approve`/`reject`/`close`). `callback_id` = `eventId` для `answerOnCallback`.
+- Клавиатуры: `attachments: kb ? [kb] : undefined` (`renderWorkKeyboard`/`renderManageKeyboard` возвращают `undefined`, если кнопок нет).
+- Транспорт: разработка на long polling; в каждой группе бот должен быть АДМИНОМ, иначе не видит сообщения группы; добавление бота в группы должно быть разрешено в кабинете бота (business.max.ru).
