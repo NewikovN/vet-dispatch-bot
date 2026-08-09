@@ -92,3 +92,8 @@ export function renderManageKeyboard(card: RequestCard): InlineKeyboard | undefi
 export function renderPrivateKeyboard(requestId: number): InlineKeyboard {
   return Keyboard.inlineKeyboard([[Keyboard.button.callback('Закрыть заявку', `close:${requestId}`)]]);
 }
+
+/** Клавиатура выбора направления при создании заявки: по кнопке на каждый настроенный город */
+export function renderCitySelectKeyboard(cities: string[]): InlineKeyboard {
+  return Keyboard.inlineKeyboard(cities.map((city) => [Keyboard.button.callback(city, `city:${city}`)]));
+}

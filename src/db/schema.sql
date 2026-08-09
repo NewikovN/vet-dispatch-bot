@@ -32,8 +32,10 @@ CREATE TABLE IF NOT EXISTS requests (
 
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 
+-- Город может быть настроен наполовину (сначала привязали один чат, потом второй) —
+-- поэтому оба поля nullable, а не NOT NULL.
 CREATE TABLE IF NOT EXISTS city_chats (
   city            TEXT PRIMARY KEY,
-  work_chat_id    TEXT NOT NULL,
-  manage_chat_id  TEXT NOT NULL
+  work_chat_id    TEXT,
+  manage_chat_id  TEXT
 );

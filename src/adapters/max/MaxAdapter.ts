@@ -15,7 +15,9 @@ export class MaxAdapter implements Messenger {
   async sendGroupCard(chatId: string, card: RequestCard): Promise<string> {
     const kb = renderWorkKeyboard(card);
     const message = await this.api.sendMessageToChat(Number(chatId), renderCardText(card), {
-      attachments: kb ? [kb] : undefined,
+      // [] вместо undefined: undefined выпадает из JSON.stringify, поле "attachments" пропадает
+      // из тела запроса целиком — MAX трактует его отсутствие как "не менять вложения".
+      attachments: kb ? [kb] : [],
     });
     return message.body.mid;
   }
@@ -24,14 +26,16 @@ export class MaxAdapter implements Messenger {
     const kb = renderWorkKeyboard(card);
     await this.api.editMessage(messageId, {
       text: renderCardText(card),
-      attachments: kb ? [kb] : undefined,
+      // См. комментарий в sendGroupCard — здесь это критично: без явного [] старая
+      // клавиатура «Принять» остаётся висеть на карточке после смены статуса.
+      attachments: kb ? [kb] : [],
     });
   }
 
   async sendManageCard(chatId: string, card: RequestCard): Promise<string> {
     const kb = renderManageKeyboard(card);
     const message = await this.api.sendMessageToChat(Number(chatId), renderManageCardText(card), {
-      attachments: kb ? [kb] : undefined,
+      attachments: kb ? [kb] : [],
     });
     return message.body.mid;
   }
@@ -40,7 +44,7 @@ export class MaxAdapter implements Messenger {
     const kb = renderManageKeyboard(card);
     await this.api.editMessage(messageId, {
       text: renderManageCardText(card),
-      attachments: kb ? [kb] : undefined,
+      attachments: kb ? [kb] : [],
     });
   }
 

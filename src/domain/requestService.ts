@@ -51,8 +51,8 @@ export async function publishRequest(
   data: NewRequest,
 ): Promise<{ ok: boolean; error?: string }> {
   const chats = getCityChats(data.city);
-  if (!chats) {
-    return { ok: false, error: `Город «${data.city}» не настроен. Обратитесь к директору.` };
+  if (!chats?.workChatId) {
+    return { ok: false, error: `Рабочий чат города «${data.city}» не настроен. Обратитесь к директору.` };
   }
 
   const id = createRequest(data);
@@ -104,7 +104,7 @@ export async function takeRequest(
 
   // Управленческая карточка — с деталями, для решения об одобрении
   const chats = getCityChats(req.city);
-  if (chats) {
+  if (chats?.manageChatId) {
     const manageMsgId = await messenger.sendManageCard(chats.manageChatId, toManageCard(req, doctor!.displayName));
     setManageMessageId(req.id, manageMsgId);
   }
@@ -141,7 +141,7 @@ export async function approveTake(
   const doctor = getUser(req.assignedDoctorId!);
   const chats = getCityChats(req.city);
 
-  if (chats && req.manageMessageId) {
+  if (chats?.manageChatId && req.manageMessageId) {
     await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req, doctor?.displayName));
   }
 
@@ -185,12 +185,12 @@ export async function rejectTake(
   const chats = getCityChats(req.city);
 
   // Рабочая карточка снова открыта — кнопка «Принять» доступна другим врачам
-  if (chats && req.groupMessageId) {
+  if (chats?.workChatId && req.groupMessageId) {
     await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
   }
 
   // Управленческая карточка тоже возвращается в нейтральное состояние (без принявшего врача)
-  if (chats && req.manageMessageId) {
+  if (chats?.manageChatId && req.manageMessageId) {
     await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
   }
 
@@ -244,12 +244,12 @@ export async function finishClosing(
   const chats = getCityChats(req.city);
 
   // Рабочая карточка — нейтрально «закрыто», без суммы и имени врача
-  if (chats && req.groupMessageId) {
+  if (chats?.workChatId && req.groupMessageId) {
     await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
   }
 
   // Управленческая карточка — с итоговой суммой чека
-  if (chats && req.manageMessageId) {
+  if (chats?.manageChatId && req.manageMessageId) {
     await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req, doctor.displayName));
   }
 
