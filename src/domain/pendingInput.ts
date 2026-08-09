@@ -21,3 +21,22 @@ export function parseMoney(text: string): number | null {
   if (rubles <= 0 || rubles > 1_000_000) return null;
   return Math.round(rubles * 100);
 }
+
+/**
+ * Кого ждём: период для отчёта (кнопка «По дате» или «Направление + дата» в /отчет).
+ * city != null — направление уже выбрано («Направление + дата»), итоговый фильтр будет
+ * {city, from, to}. city == null — период без ограничения по направлению («По дате»).
+ */
+const waitingForReportPeriod = new Map<string, { city: string | null }>();
+
+export function askReportPeriod(userId: string, city: string | null = null): void {
+  waitingForReportPeriod.set(userId, { city });
+}
+
+export function getAwaitedReportPeriod(userId: string): { city: string | null } | undefined {
+  return waitingForReportPeriod.get(userId);
+}
+
+export function clearReportPeriodAwait(userId: string): void {
+  waitingForReportPeriod.delete(userId);
+}

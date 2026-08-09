@@ -93,7 +93,21 @@ export function renderPrivateKeyboard(requestId: number): InlineKeyboard {
   return Keyboard.inlineKeyboard([[Keyboard.button.callback('Закрыть заявку', `close:${requestId}`)]]);
 }
 
-/** Клавиатура выбора направления при создании заявки: по кнопке на каждый настроенный город */
-export function renderCitySelectKeyboard(cities: string[]): InlineKeyboard {
-  return Keyboard.inlineKeyboard(cities.map((city) => [Keyboard.button.callback(city, `city:${city}`)]));
+/**
+ * Клавиатура выбора направления: по кнопке на каждый настроенный город.
+ * payloadPrefix различает контекст выбора — "city" (создание заявки), "repcity" (отчёт по
+ * направлению) или "repcd" (отчёт: направление + дата).
+ */
+export function renderCitySelectKeyboard(cities: string[], payloadPrefix: string = 'city'): InlineKeyboard {
+  return Keyboard.inlineKeyboard(cities.map((city) => [Keyboard.button.callback(city, `${payloadPrefix}:${city}`)]));
+}
+
+/** Меню выбора типа отчёта: полный / по направлению / по дате / направление+дата */
+export function renderReportMenuKeyboard(): InlineKeyboard {
+  return Keyboard.inlineKeyboard([
+    [Keyboard.button.callback('Полный', 'rep:all')],
+    [Keyboard.button.callback('По направлению', 'rep:city')],
+    [Keyboard.button.callback('По дате', 'rep:date')],
+    [Keyboard.button.callback('Направление + дата', 'rep:citydate')],
+  ]);
 }

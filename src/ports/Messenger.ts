@@ -26,6 +26,9 @@ export interface Messenger {
   /** Личное сообщение — сюда уходят контакты клиента. */
   sendPrivate(dmChatId: string, text: string, requestId?: number): Promise<void>;
 
+  /** Отправить файл (например, Excel-отчёт) в личку. */
+  sendDocument(dmChatId: string, filename: string, content: Buffer, caption?: string): Promise<void>;
+
   /** Ответ на нажатие кнопки: всплывашка «Заявка уже принята». */
   answerCallback(eventId: string, text: string): Promise<void>;
 }

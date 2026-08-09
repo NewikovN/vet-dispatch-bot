@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Api } from '@maxhub/max-bot-api';
 import type { Messenger, RequestCard } from '../../ports/Messenger.js';
 import {
@@ -54,6 +57,48 @@ export class MaxAdapter implements Messenger {
     await this.api.sendMessageToUser(Number(dmChatId), text, {
       attachments: kb ? [kb] : undefined,
     });
+  }
+
+  /**
+   * Файл в личку (например, .xlsx-отчёт).
+   *
+   * НЕ используем Api.uploadFile()/Upload.file() — баг библиотеки @maxhub/max-bot-api@0.2.5:
+   * для type:'file' она может попасть в ту же ветку, что video/audio (core/helpers/upload.js,
+   * uploadFromStream) — если getUploadUrl вернул token сразу, грузит байты чанками
+   * (Content-Range, uploadRange) и потом просто эхом возвращает ИСХОДНЫЙ token, никак не
+   * проверяя готовность вложения. MAX эту заливку обрабатывает как video-пайплайн и на
+   * отправке сообщения падает: 400 "Missing `token` in video attachment".
+   * Простого обхода в рамках публичного API нет: единственный путь библиотеки с гарантированным
+   * мультипартом (Upload.uploadFromBuffer, срабатывает при source instanceof Buffer) есть, но
+   * там имя файла всегда randomUUID() без расширения — а нам нужно осмысленное имя
+   * (requests_2026-08.xlsx). Поэтому грузим сами через публичный bot.api.raw, минуя
+   * Api.uploadFile целиком: getUploadUrl → сами мультипартом на полученный url → сами
+   * собираем attachment из token в ответе заливки (а не из ответа getUploadUrl).
+   */
+  async sendDocument(dmChatId: string, filename: string, content: Buffer, caption?: string): Promise<void> {
+    const dir = await mkdtemp(join(tmpdir(), 'vet-dispatch-'));
+    const filePath = join(dir, filename);
+    try {
+      await writeFile(filePath, content);
+      const fileBytes = await readFile(filePath);
+
+      // token из этого ответа сознательно игнорируем — см. комментарий выше
+      const { url } = await this.api.raw.uploads.getUploadUrl({ type: 'file' });
+
+      const formData = new FormData();
+      formData.append('data', new Blob([fileBytes]), filename);
+      const uploadRes = await fetch(url, { method: 'POST', body: formData });
+      if (!uploadRes.ok) {
+        throw new Error(`Загрузка файла в MAX не удалась: ${uploadRes.status} ${await uploadRes.text()}`);
+      }
+      const { token } = (await uploadRes.json()) as { token: string };
+
+      await this.api.sendMessageToUser(Number(dmChatId), caption ?? '', {
+        attachments: [{ type: 'file', payload: { token } }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   /** eventId здесь = callback_id из события message_callback */

@@ -11,5 +11,5 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "exclude": ["src/adapters/vk", "src/app.ts", "node_modules"]
+  "exclude": ["node_modules"]
 }

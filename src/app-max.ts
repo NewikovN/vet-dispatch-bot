@@ -6,17 +6,44 @@ import './db/index.js';
 import { config } from './config.js';
 import { bot } from './adapters/max/bot.js';
 import { MaxAdapter } from './adapters/max/MaxAdapter.js';
-import { renderCitySelectKeyboard } from './adapters/max/cardView.js';
+import { renderCitySelectKeyboard, renderReportMenuKeyboard } from './adapters/max/cardView.js';
 
 import { publishRequest, takeRequest, approveTake, rejectTake, startClosing, finishClosing } from './domain/requestService.js';
 import { canCreateRequest, canManageRoles, type Role } from './domain/models.js';
-import { getAwaitedRequest, parseMoney } from './domain/pendingInput.js';
+import {
+  getAwaitedRequest,
+  parseMoney,
+  askReportPeriod,
+  getAwaitedReportPeriod,
+  clearReportPeriodAwait,
+} from './domain/pendingInput.js';
 import { startDraft, getDraft, setDraftCity, applyAnswer, cancelDraft } from './domain/draft.js';
+import { generateRequestsXlsx } from './domain/exportService.js';
+import { parsePeriod } from './domain/datetime.js';
 
 import { ensureUser, setDmChatId, setRole, getUser, listActiveUsers, removeUser } from './db/usersRepo.js';
 import { listCityChats, setWorkChat, setManageChat } from './db/cityChatsRepo.js';
+import type { ExportFilter } from './db/requestsRepo.js';
 
 const messenger = new MaxAdapter(bot.api);
+
+const PERIOD_USAGE_HINT =
+  'Формат периода: ГГГГ.ММ (например 2026.08) — один месяц; ГГГГ.ММ-ГГГГ.ММ (например 2026.05-2026.08) — несколько месяцев включительно. Разделитель "." и "-" равнозначны.';
+
+/** Формирует .xlsx и шлёт директору в личку. label используется и в подписи, и в имени файла. */
+async function sendReport(userId: string, filter: ExportFilter, label: string): Promise<void> {
+  await messenger.sendPrivate(userId, 'Формирую отчёт…');
+  const buffer = await generateRequestsXlsx(filter);
+  const filename = `requests_${label.replace(/\s+/g, '_')}.xlsx`;
+  await messenger.sendDocument(userId, filename, buffer, `Отчёт по заявкам: ${label}`);
+}
+
+/** Города, где заданы ОБА чата — только они годятся для выбора (создание заявки, отчёт) */
+function fullyConfiguredCities(): string[] {
+  return listCityChats()
+    .filter((c) => c.workChatId && c.manageChatId)
+    .map((c) => c.city);
+}
 
 // Первый директор задаётся в .env (как в VK-версии) — не перезатираем имя, если юзер уже есть
 if (!getUser(config.directorId)) {
@@ -102,6 +129,34 @@ bot.on('message_created', async (ctx) => {
     return;
   }
 
+  // Ждём период для отчёта (после «По дате» или «Направление + дата»)?
+  const awaitedPeriod = getAwaitedReportPeriod(userId);
+  if (awaitedPeriod) {
+    const parsed = parsePeriod(text);
+    if (!parsed.ok) {
+      // Состояние (включая выбранный город, если он был) НЕ сбрасываем — можно ввести повторно
+      await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
+      return;
+    }
+    clearReportPeriodAwait(userId);
+
+    const filter: ExportFilter =
+      awaitedPeriod.city != null
+        ? { city: awaitedPeriod.city, from: parsed.range.from, to: parsed.range.to }
+        : { from: parsed.range.from, to: parsed.range.to };
+    const label = awaitedPeriod.city != null ? `${awaitedPeriod.city}_${parsed.label}` : parsed.label;
+
+    await sendReport(userId, filter, label);
+    return;
+  }
+
+  // Похоже на период, но состояние ожидания потеряно (например, бот перезапускался) —
+  // не пытаемся угадать, какой отчёт имелся в виду, просто просим начать заново.
+  if (parsePeriod(text).ok) {
+    await messenger.sendPrivate(userId, 'Начните заново: /отчет');
+    return;
+  }
+
   // Отмена заполнения заявки
   if (text === '/отмена') {
     cancelDraft(userId);
@@ -141,6 +196,7 @@ bot.on('message_created', async (ctx) => {
         lines.push('/уволить <id>');
         lines.push('/города — привязанные чаты по городам');
         lines.push('/привязать <Город> работа|управление — команда в самом групповом чате');
+        lines.push('/отчет — выгрузка заявок в Excel (кнопки: полный / по направлению / по дате / направление+дата)');
       }
 
       await messenger.sendPrivate(userId, lines.join('\n'));
@@ -206,6 +262,31 @@ bot.on('message_created', async (ctx) => {
       await messenger.sendPrivate(userId, lines.join('\n'));
       return;
     }
+
+    if (cmd === '/отчет' && isDirector) {
+      // Всё после "/отчет " целиком — а не text.split(/\s+/)[1], чтобы направления
+      // с пробелами в названии ("Москва и область") не резались на части.
+      const arg = text.slice(cmd.length).trim();
+
+      if (!arg) {
+        // Основной путь — кнопки: полный / по направлению / по дате
+        await bot.api.sendMessageToUser(Number(userId), 'Какой отчёт нужен?', {
+          attachments: [renderReportMenuKeyboard()],
+        });
+        return;
+      }
+
+      // Текстовые аргументы оставлены для совместимости. Сначала пробуем период (месяц
+      // или диапазон месяцев), не совпало — трактуем как название направления.
+      const parsed = parsePeriod(arg);
+      if (parsed.ok) {
+        await sendReport(userId, parsed.range, parsed.label);
+        return;
+      }
+
+      await sendReport(userId, { city: arg }, arg);
+      return;
+    }
   }
 
   // Идёт заполнение заявки?
@@ -256,9 +337,7 @@ bot.on('message_created', async (ctx) => {
       return;
     }
 
-    const cities = listCityChats()
-      .filter((c) => c.workChatId && c.manageChatId)
-      .map((c) => c.city);
+    const cities = fullyConfiguredCities();
 
     if (cities.length === 0) {
       await messenger.sendPrivate(userId, 'Нет настроенных направлений, обратитесь к директору.');
@@ -305,6 +384,84 @@ bot.on('message_callback', async (ctx) => {
     }
     await messenger.answerCallback(eventId, `Направление: ${value}`);
     await messenger.sendPrivate(userId, next);
+    return;
+  }
+
+  // Меню /отчет: rep:all | rep:city | rep:date | rep:citydate — доступно только директору
+  if (action === 'rep') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+
+    if (value === 'all') {
+      await messenger.answerCallback(eventId, 'Формирую отчёт…');
+      await sendReport(userId, {}, 'все');
+      return;
+    }
+
+    if (value === 'city') {
+      const cities = fullyConfiguredCities();
+
+      if (cities.length === 0) {
+        await messenger.answerCallback(eventId, 'Нет настроенных направлений.');
+        return;
+      }
+
+      await messenger.answerCallback(eventId, 'Выберите направление');
+      await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт?', {
+        attachments: [renderCitySelectKeyboard(cities, 'repcity')],
+      });
+      return;
+    }
+
+    if (value === 'date') {
+      askReportPeriod(userId);
+      await messenger.answerCallback(eventId, 'Введите период');
+      await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
+      return;
+    }
+
+    if (value === 'citydate') {
+      const cities = fullyConfiguredCities();
+
+      if (cities.length === 0) {
+        await messenger.answerCallback(eventId, 'Нет настроенных направлений.');
+        return;
+      }
+
+      await messenger.answerCallback(eventId, 'Выберите направление');
+      await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт? Дату спросим следующим шагом.', {
+        attachments: [renderCitySelectKeyboard(cities, 'repcd')],
+      });
+      return;
+    }
+
+    await messenger.answerCallback(eventId, 'Неизвестное действие.');
+    return;
+  }
+
+  // Выбор направления для отчёта (второй экран после rep:city)
+  if (action === 'repcity') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await sendReport(userId, { city: value }, value);
+    return;
+  }
+
+  // Выбор направления для отчёта «Направление + дата» (второй экран после rep:citydate) —
+  // город запоминаем в состоянии ожидания периода, отчёт соберётся после ввода периода текстом
+  if (action === 'repcd') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+    askReportPeriod(userId, value);
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
     return;
   }
 

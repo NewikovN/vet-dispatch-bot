@@ -1,5 +1,5 @@
 import { db } from './index.js';
-import type { Request } from '../domain/models.js';
+import type { Request, RequestStatus } from '../domain/models.js';
 
 export interface NewRequest {
   createdBy: string;
@@ -110,4 +110,76 @@ export function rejectRequest(id: number): RejectResult {
 
   if (info.changes === 1) return 'ok';
   return getRequest(id) ? 'not_taken' : 'not_found';
+}
+
+export interface ExportFilter {
+  /** created_at >= from (ISO-строка, включительно) */
+  from?: string;
+  /** created_at <= to (ISO-строка, включительно) */
+  to?: string;
+  city?: string;
+}
+
+/** Строка для Excel-отчёта: заявка + имя принявшего врача (джойн с users). Без контактов клиента. */
+export interface ExportRow {
+  id: number;
+  createdAt: string;
+  city: string;
+  animal: string;
+  problem: string;
+  priceNote: string;
+  status: RequestStatus;
+  doctorName: string | null;
+  checkAmount: number | null;
+  takenAt: string | null;
+  approvedAt: string | null;
+  closedAt: string | null;
+}
+
+/** Только чтение — атомарность здесь не нужна (не меняет состояние). Параметры именованные — без конкатенации строк. */
+export function listRequestsForExport(filter: ExportFilter = {}): ExportRow[] {
+  const conditions: string[] = [];
+  const params: Record<string, string> = {};
+
+  if (filter.from) {
+    conditions.push('r.created_at >= @from');
+    params.from = filter.from;
+  }
+  if (filter.to) {
+    conditions.push('r.created_at <= @to');
+    params.to = filter.to;
+  }
+  if (filter.city) {
+    conditions.push('r.city = @city');
+    params.city = filter.city;
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const rows = db.prepare(`
+    SELECT r.*, u.display_name AS doctor_name
+    FROM requests r
+    LEFT JOIN users u ON u.user_id = r.assigned_doctor_id
+    ${where}
+    ORDER BY r.created_at
+  `).all(params) as any[];
+
+  return rows.map(toExportRow);
+}
+
+function toExportRow(row: any): ExportRow {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    city: row.city,
+    animal: row.animal,
+    problem: row.problem,
+    priceNote: row.price_note,
+    status: row.status,
+    doctorName: row.doctor_name ?? null,
+    checkAmount: row.check_amount,
+    takenAt: row.taken_at,
+    approvedAt: row.approved_at,
+    closedAt: row.closed_at,
+  };
 }
