@@ -68,6 +68,11 @@
 - Проверка типов: `pnpm exec tsc --noEmit` (проверяет весь `src/` + `scripts/`; сборка — отдельно, `pnpm build` через `tsconfig.build.json`, только `src/` → `dist/`)
 - Тест гонки: `pnpm exec tsx test-claim.ts`
 
+## Сборка (`pnpm build`) и запуск из `dist/`
+`tsc` компилирует только `.ts` — не-`.ts` ассеты, нужные в рантайме (сейчас единственный такой — `db/schema.sql`, читается `db/index.ts` рядом с собой через `import.meta.url`), сам не копирует. Поэтому `pnpm build` — это `tsc -p tsconfig.build.json && node scripts/copy-assets.mjs`: второй шаг копирует все `.sql` из `src/db/` в `dist/db/` (плейн Node `fs`, без шелл-утилит — одинаково работает на Ubuntu-сервере и локально на Mac). Если в `src/db/` появится ещё один `.sql`-файл — подхватится автоматически, копируется всё с этим расширением, а не поимённо. **Если у рантайма появится новый тип ассета (не `.sql`) — не забыть научить `copy-assets.mjs` копировать и его.**
+
+Прод запускается уже из собранного `dist/`, не через `tsx`: `node dist/app-max-webhook.js` (webhook) или `node dist/app-max.js` (long polling) — оба с `NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem` (сертификат читается по своему пути через переменную окружения, от `dist`/`src` не зависит, но зависит от рабочей директории процесса — процесс должен стартовать из корня проекта).
+
 ## Long polling vs webhook
 Два режима запуска — взаимоисключающие НА СТОРОНЕ MAX (нельзя одновременно). Бизнес-логика обработчиков — в `src/handlers.ts`, общая для обоих (`app-max.ts` и `app-max-webhook.ts` её просто импортируют, не дублируют).
 - **Long polling** (`pnpm dev:max`) — разработка. Никакой подписки не требует.
