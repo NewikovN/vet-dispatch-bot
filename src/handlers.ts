@@ -1,0 +1,518 @@
+/**
+ * Регистрация обработчиков событий бота (bot_started, bot_added, message_created,
+ * message_callback) — вся бизнес-логика MAX-адаптера в одном месте, ОБЩЕМ для обоих
+ * транспортов. Подключается побочным эффектом импорта:
+ *   import './handlers.js';
+ * — и в app-max.ts (dev, long polling), и в app-max-webhook.ts (прод, webhook). Сам транспорт
+ * (bot.start() или Express-сервер) в этом файле не запускается — только bot.on(...).
+ */
+import './db/index.js';
+import { config } from './config.js';
+import { bot } from './adapters/max/bot.js';
+import { MaxAdapter } from './adapters/max/MaxAdapter.js';
+import { renderCitySelectKeyboard, renderReportMenuKeyboard } from './adapters/max/cardView.js';
+
+import { publishRequest, takeRequest, approveTake, rejectTake, startClosing, finishClosing } from './domain/requestService.js';
+import { canCreateRequest, canManageRoles, type Role } from './domain/models.js';
+import {
+  getAwaitedRequest,
+  parseMoney,
+  askReportPeriod,
+  getAwaitedReportPeriod,
+  clearReportPeriodAwait,
+} from './domain/pendingInput.js';
+import { startDraft, getDraft, setDraftCity, applyAnswer, cancelDraft } from './domain/draft.js';
+import { generateRequestsXlsx } from './domain/exportService.js';
+import { parsePeriod } from './domain/datetime.js';
+
+import { ensureUser, setDmChatId, setRole, getUser, listActiveUsers, removeUser } from './db/usersRepo.js';
+import { listCityChats, setWorkChat, setManageChat } from './db/cityChatsRepo.js';
+import type { ExportFilter } from './db/requestsRepo.js';
+
+const messenger = new MaxAdapter(bot.api);
+
+/**
+ * Bot.catch(...) — публичный метод (dist/bot.d.ts: `catch(handler): this`), переопределяет
+ * внутренний handleError, используемый Bot.handleUpdate. handleUpdate ОБЩИЙ для обоих
+ * транспортов (long polling дёргает его из Polling.loop, webhook — из server.ts тем же
+ * обходом), поэтому один bot.catch(...) здесь действует и на app-max.ts, и на app-max-webhook.ts.
+ *
+ * Без этого — дефолтный handleError библиотеки (dist/bot.js) на любой ошибке в обработчике
+ * делает process.exitCode = 1 и пробрасывает её дальше. Под systemd это выглядит как «упал
+ * процесс» из-за единичного сбоя (например, sendMessageToUser упал, потому что пользователь
+ * удалил диалог с ботом) — и ведёт к ненужным перезапускам. Логируем с контекстом события
+ * и НЕ пробрасываем: одна неудачная отправка не должна ронять бота для всех остальных.
+ */
+bot.catch((err, ctx) => {
+  console.error('Ошибка обработки события MAX:', {
+    updateType: ctx.updateType,
+    chatId: ctx.chatId,
+    userId: ctx.user?.user_id,
+    messageId: ctx.messageId,
+    update: ctx.update,
+    err,
+  });
+});
+
+const PERIOD_USAGE_HINT =
+  'Формат периода: ГГГГ.ММ (например 2026.08) — один месяц; ГГГГ.ММ-ГГГГ.ММ (например 2026.05-2026.08) — несколько месяцев включительно. Разделитель "." и "-" равнозначны.';
+
+/** Формирует .xlsx и шлёт директору в личку. label используется и в подписи, и в имени файла. */
+async function sendReport(userId: string, filter: ExportFilter, label: string): Promise<void> {
+  await messenger.sendPrivate(userId, 'Формирую отчёт…');
+  const buffer = await generateRequestsXlsx(filter);
+  const filename = `requests_${label.replace(/\s+/g, '_')}.xlsx`;
+  await messenger.sendDocument(userId, filename, buffer, `Отчёт по заявкам: ${label}`);
+}
+
+/** Города, где заданы ОБА чата — только они годятся для выбора (создание заявки, отчёт) */
+function fullyConfiguredCities(): string[] {
+  return listCityChats()
+    .filter((c) => c.workChatId && c.manageChatId)
+    .map((c) => c.city);
+}
+
+// Первый директор задаётся в .env (как в VK-версии) — не перезатираем имя, если юзер уже есть
+if (!getUser(config.directorId)) {
+  ensureUser(config.directorId, 'Директор');
+}
+setRole(config.directorId, 'director');
+console.log('Директор:', config.directorId);
+
+/** Онбординг: пользователь впервые открыл диалог с ботом */
+bot.on('bot_started', async (ctx) => {
+  const userId = String(ctx.user.user_id);
+  const displayName = ctx.user.name;
+
+  console.log(`bot_started: userId=${userId}, chatId=${ctx.chatId}, name=${displayName}`);
+
+  ensureUser(userId, displayName);
+  // dmChatId здесь = MAX userId (личка шлётся через sendMessageToUser, не через chat_id)
+  setDmChatId(userId, userId);
+
+  await messenger.sendPrivate(userId, 'Вы зарегистрированы. Директор назначит вам роль.');
+});
+
+/** Кто-то добавил бота в групповой чат — пригодится позже для привязки чата к городу */
+bot.on('bot_added', (ctx) => {
+  console.log(`bot_added: chatId=${ctx.chatId}`);
+});
+
+/** Команда /привязать в групповом чате: только директор, только формат "<Город> работа|управление" */
+async function handleGroupCommand(userId: string, chatId: string, text: string): Promise<void> {
+  const user = getUser(userId);
+  if (!canManageRoles(user?.role ?? null)) return; // не директор — молчим, не шумим в общем чате
+
+  const parts = text.trim().split(/\s+/);
+  const target = parts[parts.length - 1];
+  const city = parts.slice(1, -1).join(' ');
+
+  if (parts[0] !== '/привязать' || parts.length < 3 || (target !== 'работа' && target !== 'управление')) {
+    await bot.api.sendMessageToChat(Number(chatId), 'Формат: /привязать <Город> работа|управление');
+    return;
+  }
+
+  if (target === 'работа') {
+    setWorkChat(city, chatId);
+    await bot.api.sendMessageToChat(Number(chatId), `Готово: этот чат — рабочий чат города «${city}».`);
+  } else {
+    setManageChat(city, chatId);
+    await bot.api.sendMessageToChat(Number(chatId), `Готово: этот чат — управленческий чат города «${city}».`);
+  }
+}
+
+/** Входящие сообщения. В личке — полный сценарий, в группе — только команды привязки чата. */
+bot.on('message_created', async (ctx) => {
+  const message = ctx.message;
+  const chatType = message.recipient.chat_type;
+  const text = (message.body.text ?? '').trim();
+  const senderId = message.sender?.user_id;
+
+  console.log(`message_created: chatType=${chatType}, chatId=${ctx.chatId}, senderId=${senderId}, текст="${text}"`);
+
+  if (chatType !== 'dialog') {
+    // Групповой чат: обычные сообщения игнорируем, реагируем только на команды привязки
+    if (text.startsWith('/') && senderId != null) {
+      await handleGroupCommand(String(senderId), String(ctx.chatId), text);
+    }
+    return;
+  }
+  if (senderId == null) return;
+
+  const userId = String(senderId);
+  ensureUser(userId, message.sender?.name ?? 'Без имени');
+  setDmChatId(userId, userId);
+
+  // Ждём сумму чека?
+  const awaited = getAwaitedRequest(userId);
+  if (awaited != null) {
+    const amount = parseMoney(text);
+    if (amount == null) {
+      await messenger.sendPrivate(userId, 'Не понял сумму. Введите число, например: 1500');
+      return;
+    }
+    // chatId в finishClosing сейчас не используется (обе карточки находятся через город заявки)
+    await finishClosing(messenger, awaited, userId, amount, '');
+    return;
+  }
+
+  // Ждём период для отчёта (после «По дате» или «Направление + дата»)?
+  const awaitedPeriod = getAwaitedReportPeriod(userId);
+  if (awaitedPeriod) {
+    const parsed = parsePeriod(text);
+    if (!parsed.ok) {
+      // Состояние (включая выбранный город, если он был) НЕ сбрасываем — можно ввести повторно
+      await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
+      return;
+    }
+    clearReportPeriodAwait(userId);
+
+    const filter: ExportFilter =
+      awaitedPeriod.city != null
+        ? { city: awaitedPeriod.city, from: parsed.range.from, to: parsed.range.to }
+        : { from: parsed.range.from, to: parsed.range.to };
+    const label = awaitedPeriod.city != null ? `${awaitedPeriod.city}_${parsed.label}` : parsed.label;
+
+    await sendReport(userId, filter, label);
+    return;
+  }
+
+  // Похоже на период, но состояние ожидания потеряно (например, бот перезапускался) —
+  // не пытаемся угадать, какой отчёт имелся в виду, просто просим начать заново.
+  if (parsePeriod(text).ok) {
+    await messenger.sendPrivate(userId, 'Начните заново: /отчет');
+    return;
+  }
+
+  // Отмена заполнения заявки
+  if (text === '/отмена') {
+    cancelDraft(userId);
+    await messenger.sendPrivate(userId, 'Отменено.');
+    return;
+  }
+
+  // --- Команды директора (личка) ---
+  if (text.startsWith('/')) {
+    const me = getUser(userId);
+    const isDirector = canManageRoles(me?.role ?? null);
+    const [cmd, arg1, arg2] = text.split(/\s+/);
+
+    if (cmd === '/помощь' || cmd === '/start' || cmd === '/начать') {
+      const lines: string[] = ['Бот заявок.', ''];
+
+      if (!me?.role) {
+        lines.push('У вас пока нет роли. Обратитесь к директору.');
+        lines.push(`(ваш ID: ${userId})`);
+      }
+
+      if (canCreateRequest(me?.role ?? null)) {
+        lines.push('/заявка — создать заявку');
+        lines.push('/отмена — прервать заполнение');
+      }
+
+      if (me?.role === 'doctor') {
+        lines.push('Заявки приходят в рабочий чат. Нажмите «Принять» — после одобрения контакты придут сюда.');
+        lines.push('Кнопка «Закрыть заявку» — под контактами.');
+      }
+
+      if (isDirector) {
+        lines.push('');
+        lines.push('Директор:');
+        lines.push('/люди — список сотрудников');
+        lines.push('/роль <id> <диспетчер|врач|управляющий|директор>');
+        lines.push('/уволить <id>');
+        lines.push('/города — привязанные чаты по городам');
+        lines.push('/привязать <Город> работа|управление — команда в самом групповом чате');
+        lines.push('/отчет — выгрузка заявок в Excel (кнопки: полный / по направлению / по дате / направление+дата)');
+      }
+
+      await messenger.sendPrivate(userId, lines.join('\n'));
+      return;
+    }
+
+    if (cmd === '/люди' && isDirector) {
+      const users = listActiveUsers();
+      const lines = users.map(
+        (u) => `${u.userId} — ${u.displayName} — ${u.role ?? 'без роли'}${u.dmChatId ? '' : ' ⚠️ нет лички'}`,
+      );
+      await messenger.sendPrivate(userId, lines.length ? lines.join('\n') : 'Пока никого нет.');
+      return;
+    }
+
+    if (cmd === '/роль' && isDirector) {
+      const roles: Record<string, Role> = {
+        диспетчер: 'dispatcher',
+        врач: 'doctor',
+        управляющий: 'manager',
+        директор: 'director',
+      };
+      const role = roles[arg2 ?? ''];
+      if (arg1 === config.directorId && role !== 'director') {
+        await messenger.sendPrivate(userId, 'Главного директора разжаловать нельзя.');
+        return;
+      }
+      if (!arg1 || !role) {
+        await messenger.sendPrivate(userId, 'Формат: /роль <id> <диспетчер|врач|управляющий|директор>');
+        return;
+      }
+      if (!getUser(arg1)) {
+        await messenger.sendPrivate(userId, 'Такого пользователя нет. Он должен сначала написать боту.');
+        return;
+      }
+      setRole(arg1, role);
+      await messenger.sendPrivate(userId, `Готово: ${arg1} → ${arg2}`);
+      return;
+    }
+
+    if (cmd === '/уволить' && isDirector) {
+      if (!arg1 || !getUser(arg1)) {
+        await messenger.sendPrivate(userId, 'Формат: /уволить <id>');
+        return;
+      }
+      removeUser(arg1);
+      await messenger.sendPrivate(userId, `${arg1} удалён.`);
+      return;
+    }
+
+    if (cmd === '/города' && isDirector) {
+      const cities = listCityChats();
+      if (!cities.length) {
+        await messenger.sendPrivate(
+          userId,
+          'Пока ни один город не привязан. В нужном групповом чате: /привязать <Город> работа|управление',
+        );
+        return;
+      }
+      const lines = cities.map(
+        (c) => `${c.city}: работа=${c.workChatId ?? '⚠️ не задан'}, управление=${c.manageChatId ?? '⚠️ не задан'}`,
+      );
+      await messenger.sendPrivate(userId, lines.join('\n'));
+      return;
+    }
+
+    if (cmd === '/отчет' && isDirector) {
+      // Всё после "/отчет " целиком — а не text.split(/\s+/)[1], чтобы направления
+      // с пробелами в названии ("Москва и область") не резались на части.
+      const arg = text.slice(cmd.length).trim();
+
+      if (!arg) {
+        // Основной путь — кнопки: полный / по направлению / по дате
+        await bot.api.sendMessageToUser(Number(userId), 'Какой отчёт нужен?', {
+          attachments: [renderReportMenuKeyboard()],
+        });
+        return;
+      }
+
+      // Текстовые аргументы оставлены для совместимости. Сначала пробуем период (месяц
+      // или диапазон месяцев), не совпало — трактуем как название направления.
+      const parsed = parsePeriod(arg);
+      if (parsed.ok) {
+        await sendReport(userId, parsed.range, parsed.label);
+        return;
+      }
+
+      await sendReport(userId, { city: arg }, arg);
+      return;
+    }
+  }
+
+  // Идёт заполнение заявки?
+  const draft = getDraft(userId);
+  if (draft) {
+    if (draft.city == null) {
+      // Черновик создан, но направление ещё не выбрано кнопкой — текст пока не принимаем
+      await messenger.sendPrivate(userId, 'Сначала выберите направление кнопкой выше.');
+      return;
+    }
+
+    const next = applyAnswer(userId, text);
+
+    if (next) {
+      await messenger.sendPrivate(userId, next);
+      return;
+    }
+
+    const finished = getDraft(userId)!;
+    const city = finished.city!; // непусто: выше вернулись бы раньше, если бы город не был выбран
+    const values = finished.values;
+    cancelDraft(userId);
+
+    const result = await publishRequest(messenger, {
+      createdBy: userId,
+      date: values.date!,
+      city,
+      animal: values.animal!,
+      problem: values.problem!,
+      priceNote: values.priceNote!,
+      clientContacts: values.clientContacts!,
+    });
+
+    if (!result.ok) {
+      await messenger.sendPrivate(userId, result.error ?? 'Не удалось опубликовать заявку.');
+      return;
+    }
+
+    await messenger.sendPrivate(userId, 'Заявка опубликована в рабочем чате.');
+    return;
+  }
+
+  // Начать новую заявку: первый шаг — выбор направления кнопкой (список берём из city_chats)
+  if (text === '/заявка') {
+    const user = getUser(userId);
+    if (!canCreateRequest(user?.role ?? null)) {
+      await messenger.sendPrivate(userId, 'Заявки создают диспетчер, управляющий и директор.');
+      return;
+    }
+
+    const cities = fullyConfiguredCities();
+
+    if (cities.length === 0) {
+      await messenger.sendPrivate(userId, 'Нет настроенных направлений, обратитесь к директору.');
+      return;
+    }
+
+    startDraft(userId);
+    await bot.api.sendMessageToUser(Number(userId), 'Новая заявка. Выберите направление:\n\n/отмена — прервать', {
+      attachments: [renderCitySelectKeyboard(cities)],
+    });
+    return;
+  }
+
+  // Ничего не подошло
+  const me = getUser(userId);
+  if (!me?.role) {
+    await messenger.sendPrivate(userId, 'Вы зарегистрированы. Директор назначит вам роль.');
+    return;
+  }
+  await messenger.sendPrivate(userId, 'Не понял команду. Наберите /помощь.');
+});
+
+/** Нажатия inline-кнопок в карточках: take / approve / reject / close */
+bot.on('message_callback', async (ctx) => {
+  const callback = ctx.callback;
+  const payload = callback.payload ?? '';
+  const userId = String(callback.user.user_id);
+  const chatId = ctx.chatId != null ? String(ctx.chatId) : '';
+  const eventId = callback.callback_id;
+
+  console.log(`message_callback: payload="${payload}", userId=${userId}, chatId=${chatId}, callback_id=${eventId}`);
+
+  // Делим payload только по ПЕРВОМУ двоеточию — название направления может содержать пробелы
+  // ("Москва и область"), но не должно ломать разбор, даже если гипотетически содержит ":".
+  const sep = payload.indexOf(':');
+  const action = sep === -1 ? payload : payload.slice(0, sep);
+  const value = sep === -1 ? '' : payload.slice(sep + 1);
+
+  if (action === 'city') {
+    const next = setDraftCity(userId, value);
+    if (next == null) {
+      await messenger.answerCallback(eventId, 'Черновик заявки не найден. Начните заново: /заявка');
+      return;
+    }
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await messenger.sendPrivate(userId, next);
+    return;
+  }
+
+  // Меню /отчет: rep:all | rep:city | rep:date | rep:citydate — доступно только директору
+  if (action === 'rep') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+
+    if (value === 'all') {
+      await messenger.answerCallback(eventId, 'Формирую отчёт…');
+      await sendReport(userId, {}, 'все');
+      return;
+    }
+
+    if (value === 'city') {
+      const cities = fullyConfiguredCities();
+
+      if (cities.length === 0) {
+        await messenger.answerCallback(eventId, 'Нет настроенных направлений.');
+        return;
+      }
+
+      await messenger.answerCallback(eventId, 'Выберите направление');
+      await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт?', {
+        attachments: [renderCitySelectKeyboard(cities, 'repcity')],
+      });
+      return;
+    }
+
+    if (value === 'date') {
+      askReportPeriod(userId);
+      await messenger.answerCallback(eventId, 'Введите период');
+      await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
+      return;
+    }
+
+    if (value === 'citydate') {
+      const cities = fullyConfiguredCities();
+
+      if (cities.length === 0) {
+        await messenger.answerCallback(eventId, 'Нет настроенных направлений.');
+        return;
+      }
+
+      await messenger.answerCallback(eventId, 'Выберите направление');
+      await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт? Дату спросим следующим шагом.', {
+        attachments: [renderCitySelectKeyboard(cities, 'repcd')],
+      });
+      return;
+    }
+
+    await messenger.answerCallback(eventId, 'Неизвестное действие.');
+    return;
+  }
+
+  // Выбор направления для отчёта (второй экран после rep:city)
+  if (action === 'repcity') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await sendReport(userId, { city: value }, value);
+    return;
+  }
+
+  // Выбор направления для отчёта «Направление + дата» (второй экран после rep:citydate) —
+  // город запоминаем в состоянии ожидания периода, отчёт соберётся после ввода периода текстом
+  if (action === 'repcd') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+    askReportPeriod(userId, value);
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
+    return;
+  }
+
+  const requestId = Number(value);
+
+  if (!action || Number.isNaN(requestId)) {
+    await messenger.answerCallback(eventId, 'Не понял нажатие.');
+    return;
+  }
+
+  switch (action) {
+    case 'take':
+      await takeRequest(messenger, requestId, userId, chatId, eventId);
+      break;
+    case 'approve':
+      await approveTake(messenger, requestId, userId, eventId);
+      break;
+    case 'reject':
+      await rejectTake(messenger, requestId, userId, eventId);
+      break;
+    case 'close':
+      await startClosing(messenger, requestId, userId, eventId);
+      break;
+    default:
+      await messenger.answerCallback(eventId, 'Неизвестное действие.');
+  }
+});

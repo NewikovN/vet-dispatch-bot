@@ -61,10 +61,17 @@
 - Проверять компиляцию: `pnpm exec tsc --noEmit`.
 
 ## Команды
-- Запуск: `pnpm dev:max`
+- Разработка (long polling): `pnpm dev:max`
+- Прод (webhook): `pnpm build && pnpm start:webhook` (или `pnpm dev:webhook` для локальной проверки через tsx)
+- Управление подпиской на webhook: `pnpm webhook:register` / `pnpm webhook:delete` / `pnpm webhook:list`
 - Наполнить тестовыми данными: `pnpm seed` (см. `scripts/seed.ts` — отдельная БД, `data.db` не трогает)
-- Проверка типов: `pnpm exec tsc --noEmit`
+- Проверка типов: `pnpm exec tsc --noEmit` (проверяет весь `src/` + `scripts/`; сборка — отдельно, `pnpm build` через `tsconfig.build.json`, только `src/` → `dist/`)
 - Тест гонки: `pnpm exec tsx test-claim.ts`
+
+## Long polling vs webhook
+Два режима запуска — взаимоисключающие НА СТОРОНЕ MAX (нельзя одновременно). Бизнес-логика обработчиков — в `src/handlers.ts`, общая для обоих (`app-max.ts` и `app-max-webhook.ts` её просто импортируют, не дублируют).
+- **Long polling** (`pnpm dev:max`) — разработка. Никакой подписки не требует.
+- **Webhook** (`app-max-webhook.ts` + nginx на 443) — прод. Нужны `MAX_WEBHOOK_SECRET` (длинная случайная строка) и `MAX_WEBHOOK_URL` (публичный HTTPS-адрес) в `.env`. Подписка регистрируется ОТДЕЛЬНО от запуска процесса — разово при деплое/смене адреса через `pnpm webhook:register` (сначала удаляет старые подписки — см. `src/webhook/register.ts`). Перед возвратом на long polling — `pnpm webhook:delete`.
 
 ## Окружение
 Редактор может использовать свою (более старую) версию TypeScript для подсветки — например 6.x, — а проект собирается на TypeScript 7 (`package.json` → `devDependencies.typescript`). При расхождении подсветки и реальных ошибок истина всегда за `pnpm exec tsc --noEmit`, не за редактором. Если редактор подсвечивает ошибки, которых `tsc --noEmit` не показывает (частая причина — устаревший кэш TS-сервера после правок в другом чате/сессии), помогает Reload Window или Command Palette → «TypeScript: Select TypeScript Version» → «Use Workspace Version».
