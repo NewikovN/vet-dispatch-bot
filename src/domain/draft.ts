@@ -1,3 +1,5 @@
+import { createStepDraft, type StepDraft } from './stepDraft.js';
+
 // Город (направление) выбирается кнопкой ДО текстовых шагов — поэтому в FIELDS его нет,
 // он хранится в Draft.city отдельно.
 export const FIELDS = ['date', 'animal', 'problem', 'priceNote', 'clientContacts'] as const;
@@ -11,46 +13,13 @@ export const PROMPTS: Record<Field, string> = {
   clientContacts: 'Контакты клиента (имя, телефон)',
 };
 
-export interface Draft {
-  city: string | null;
-  step: number;
-  values: Partial<Record<Field, string>>;
-}
+export type Draft = StepDraft<Field>;
 
-const drafts = new Map<string, Draft>();
+const controller = createStepDraft(FIELDS, PROMPTS);
 
-/** Начинает черновик заявки. Город ещё не выбран — первый шаг (кнопка) задаёт вызывающая сторона. */
-export function startDraft(userId: string): void {
-  drafts.set(userId, { city: null, step: 0, values: {} });
-}
-
-export function getDraft(userId: string): Draft | undefined {
-  return drafts.get(userId);
-}
-
-export function cancelDraft(userId: string): void {
-  drafts.delete(userId);
-}
-
-/** Записывает выбранный город. Возвращает первый текстовый вопрос, либо undefined, если черновика нет. */
-export function setDraftCity(userId: string, city: string): string | undefined {
-  const draft = drafts.get(userId);
-  if (!draft) return undefined;
-
-  draft.city = city;
-  return PROMPTS[FIELDS[0]];
-}
-
-/** Записывает ответ на текстовый вопрос. Возвращает следующий вопрос или null, если заявка готова. */
-export function applyAnswer(userId: string, text: string): string | null {
-  const draft = drafts.get(userId)!;
-  draft.values[FIELDS[draft.step]] = text.trim();
-  draft.step += 1;
-
-  if (draft.step >= FIELDS.length) return null;
-  return PROMPTS[FIELDS[draft.step]];
-}
-
-export function isComplete(draft: Draft): boolean {
-  return draft.city != null && draft.step >= FIELDS.length;
-}
+export const startDraft = controller.startDraft;
+export const getDraft = controller.getDraft;
+export const cancelDraft = controller.cancelDraft;
+export const setDraftCity = controller.setDraftCity;
+export const applyAnswer = controller.applyAnswer;
+export const isComplete = controller.isComplete;

@@ -39,3 +39,21 @@ CREATE TABLE IF NOT EXISTS city_chats (
   work_chat_id    TEXT,
   manage_chat_id  TEXT
 );
+
+-- Учёт вакцинаций — отдельная сущность, НЕ связана с requests. Добавляют директор/управляющий
+-- вручную в личке; запись только сохраняется в БД, никуда не постится в чаты (в отличие от
+-- заявок). IF NOT EXISTS — на боевой базе таблица появится при следующем запуске без сноса
+-- существующих данных (db/index.ts применяет весь schema.sql при каждом старте).
+CREATE TABLE IF NOT EXISTS vaccinations (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  city              TEXT NOT NULL,
+  vaccination_date  TEXT NOT NULL,
+  vaccine_type      TEXT NOT NULL,
+  animal            TEXT NOT NULL,
+  next_date         TEXT,
+  client_contacts   TEXT NOT NULL,
+  created_by        TEXT NOT NULL REFERENCES users(user_id),
+  created_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vaccinations_city_date ON vaccinations(city, vaccination_date);

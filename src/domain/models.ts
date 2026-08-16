@@ -53,3 +53,8 @@ export function canReject(role: Role | null): boolean {
 export function canSeeDetails(role: Role | null): boolean {
   return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
+
+/** Учёт вакцинаций — отдельная сущность, не связанная с заявками. Ведут директор и управляющий. */
+export function canManageVaccinations(role: Role | null): boolean {
+  return role === 'director' || role === 'manager';
+}

@@ -102,12 +102,20 @@ export function renderCitySelectKeyboard(cities: string[], payloadPrefix: string
   return Keyboard.inlineKeyboard(cities.map((city) => [Keyboard.button.callback(city, `${payloadPrefix}:${city}`)]));
 }
 
-/** Меню выбора типа отчёта: полный / по направлению / по дате / направление+дата */
-export function renderReportMenuKeyboard(): InlineKeyboard {
+/** Меню выбора СУЩНОСТИ отчёта: заявки / вакцинации — первый шаг /отчет */
+export function renderReportTypeKeyboard(): InlineKeyboard {
   return Keyboard.inlineKeyboard([
-    [Keyboard.button.callback('Полный', 'rep:all')],
-    [Keyboard.button.callback('По направлению', 'rep:city')],
-    [Keyboard.button.callback('По дате', 'rep:date')],
-    [Keyboard.button.callback('Направление + дата', 'rep:citydate')],
+    [Keyboard.button.callback('Заявки', 'rtype:req')],
+    [Keyboard.button.callback('Вакцины', 'rtype:vac')],
+  ]);
+}
+
+/** Меню фильтров отчёта: полный / по направлению / по дате / направление+дата. type — заявки/вакцины, разошлось на предыдущем шаге и вшито в payload каждой кнопки. */
+export function renderReportMenuKeyboard(type: 'req' | 'vac'): InlineKeyboard {
+  return Keyboard.inlineKeyboard([
+    [Keyboard.button.callback('Полный', `rep:${type}:all`)],
+    [Keyboard.button.callback('По направлению', `rep:${type}:city`)],
+    [Keyboard.button.callback('По дате', `rep:${type}:date`)],
+    [Keyboard.button.callback('Направление + дата', `rep:${type}:citydate`)],
   ]);
 }

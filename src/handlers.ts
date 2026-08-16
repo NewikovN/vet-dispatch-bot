@@ -10,26 +10,47 @@ import './db/index.js';
 import { config } from './config.js';
 import { bot } from './adapters/max/bot.js';
 import { MaxAdapter } from './adapters/max/MaxAdapter.js';
-import { renderCitySelectKeyboard, renderReportMenuKeyboard } from './adapters/max/cardView.js';
+import {
+  renderCitySelectKeyboard,
+  renderReportTypeKeyboard,
+  renderReportMenuKeyboard,
+} from './adapters/max/cardView.js';
 
 import { publishRequest, takeRequest, approveTake, rejectTake, startClosing, finishClosing } from './domain/requestService.js';
-import { canCreateRequest, canManageRoles, type Role } from './domain/models.js';
+import { canCreateRequest, canManageRoles, canManageVaccinations, type Role } from './domain/models.js';
 import {
   getAwaitedRequest,
   parseMoney,
   askReportPeriod,
   getAwaitedReportPeriod,
   clearReportPeriodAwait,
+  type ReportType,
 } from './domain/pendingInput.js';
 import { startDraft, getDraft, setDraftCity, applyAnswer, cancelDraft } from './domain/draft.js';
-import { generateRequestsXlsx } from './domain/exportService.js';
-import { parsePeriod } from './domain/datetime.js';
+import {
+  startDraft as startVaccineDraft,
+  getDraft as getVaccineDraft,
+  setDraftCity as setVaccineDraftCity,
+  applyAnswer as applyVaccineAnswer,
+  cancelDraft as cancelVaccineDraft,
+} from './domain/vaccineDraft.js';
+import { generateRequestsXlsx, generateVaccinationsXlsx } from './domain/exportService.js';
+import { parsePeriod, parseDateToIso } from './domain/datetime.js';
 
 import { ensureUser, setDmChatId, setRole, getUser, listActiveUsers, removeUser } from './db/usersRepo.js';
 import { listCityChats, setWorkChat, setManageChat } from './db/cityChatsRepo.js';
-import type { ExportFilter } from './db/requestsRepo.js';
+import { createVaccination } from './db/vaccinationsRepo.js';
 
 const messenger = new MaxAdapter(bot.api);
+
+/** Фильтр отчёта — форма общая и для заявок, и для вакцинаций (ExportFilter/VaccinationExportFilter структурно идентичны). */
+type ReportFilter = { city?: string; from?: string; to?: string };
+
+/** Делит строку по ПЕРВОМУ вхождению разделителя (не по всем) — тот же приём, что и для payload кнопок ниже. */
+function splitFirst(text: string, sep: string): [string, string] {
+  const i = text.indexOf(sep);
+  return i === -1 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
+}
 
 /**
  * Bot.catch(...) — публичный метод (dist/bot.d.ts: `catch(handler): this`), переопределяет
@@ -57,12 +78,14 @@ bot.catch((err, ctx) => {
 const PERIOD_USAGE_HINT =
   'Формат периода: ГГГГ.ММ (например 2026.08) — один месяц; ГГГГ.ММ-ГГГГ.ММ (например 2026.05-2026.08) — несколько месяцев включительно. Разделитель "." и "-" равнозначны.';
 
-/** Формирует .xlsx и шлёт директору в личку. label используется и в подписи, и в имени файла. */
-async function sendReport(userId: string, filter: ExportFilter, label: string): Promise<void> {
+/** Формирует .xlsx (заявки либо вакцинации — см. type) и шлёт директору в личку. label — и в подписи, и в имени файла. */
+async function sendReport(userId: string, type: ReportType, filter: ReportFilter, label: string): Promise<void> {
   await messenger.sendPrivate(userId, 'Формирую отчёт…');
-  const buffer = await generateRequestsXlsx(filter);
-  const filename = `requests_${label.replace(/\s+/g, '_')}.xlsx`;
-  await messenger.sendDocument(userId, filename, buffer, `Отчёт по заявкам: ${label}`);
+  const buffer = type === 'vac' ? await generateVaccinationsXlsx(filter) : await generateRequestsXlsx(filter);
+  const prefix = type === 'vac' ? 'vaccinations' : 'requests';
+  const caption = type === 'vac' ? 'Отчёт по вакцинам' : 'Отчёт по заявкам';
+  const filename = `${prefix}_${label.replace(/\s+/g, '_')}.xlsx`;
+  await messenger.sendDocument(userId, filename, buffer, `${caption}: ${label}`);
 }
 
 /** Города, где заданы ОБА чата — только они годятся для выбора (создание заявки, отчёт) */
@@ -161,19 +184,19 @@ bot.on('message_created', async (ctx) => {
   if (awaitedPeriod) {
     const parsed = parsePeriod(text);
     if (!parsed.ok) {
-      // Состояние (включая выбранный город, если он был) НЕ сбрасываем — можно ввести повторно
+      // Состояние (включая выбранный город и тип отчёта) НЕ сбрасываем — можно ввести повторно
       await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
       return;
     }
     clearReportPeriodAwait(userId);
 
-    const filter: ExportFilter =
+    const filter: ReportFilter =
       awaitedPeriod.city != null
         ? { city: awaitedPeriod.city, from: parsed.range.from, to: parsed.range.to }
         : { from: parsed.range.from, to: parsed.range.to };
     const label = awaitedPeriod.city != null ? `${awaitedPeriod.city}_${parsed.label}` : parsed.label;
 
-    await sendReport(userId, filter, label);
+    await sendReport(userId, awaitedPeriod.type, filter, label);
     return;
   }
 
@@ -184,9 +207,10 @@ bot.on('message_created', async (ctx) => {
     return;
   }
 
-  // Отмена заполнения заявки
+  // Отмена заполнения заявки/вакцинации (независимые черновики — на всякий случай сбрасываем оба)
   if (text === '/отмена') {
     cancelDraft(userId);
+    cancelVaccineDraft(userId);
     await messenger.sendPrivate(userId, 'Отменено.');
     return;
   }
@@ -208,6 +232,10 @@ bot.on('message_created', async (ctx) => {
       if (canCreateRequest(me?.role ?? null)) {
         lines.push('/заявка — создать заявку');
         lines.push('/отмена — прервать заполнение');
+      }
+
+      if (canManageVaccinations(me?.role ?? null)) {
+        lines.push('/вакцина — добавить запись о вакцинации');
       }
 
       if (me?.role === 'doctor') {
@@ -296,22 +324,22 @@ bot.on('message_created', async (ctx) => {
       const arg = text.slice(cmd.length).trim();
 
       if (!arg) {
-        // Основной путь — кнопки: полный / по направлению / по дате
+        // Основной путь — кнопки: сначала тип отчёта (заявки/вакцины), потом фильтры
         await bot.api.sendMessageToUser(Number(userId), 'Какой отчёт нужен?', {
-          attachments: [renderReportMenuKeyboard()],
+          attachments: [renderReportTypeKeyboard()],
         });
         return;
       }
 
-      // Текстовые аргументы оставлены для совместимости. Сначала пробуем период (месяц
-      // или диапазон месяцев), не совпало — трактуем как название направления.
+      // Текстовые аргументы оставлены для совместимости со старым форматом — только заявки
+      // (он появился до отчёта по вакцинам). Для вакцин — только через кнопки.
       const parsed = parsePeriod(arg);
       if (parsed.ok) {
-        await sendReport(userId, parsed.range, parsed.label);
+        await sendReport(userId, 'req', parsed.range, parsed.label);
         return;
       }
 
-      await sendReport(userId, { city: arg }, arg);
+      await sendReport(userId, 'req', { city: arg }, arg);
       return;
     }
   }
@@ -378,6 +406,70 @@ bot.on('message_created', async (ctx) => {
     return;
   }
 
+  // Идёт заполнение вакцинации? Отдельный черновик — не связан с заявками.
+  const vaccineDraft = getVaccineDraft(userId);
+  if (vaccineDraft) {
+    if (vaccineDraft.city == null) {
+      await messenger.sendPrivate(userId, 'Сначала выберите направление кнопкой выше.');
+      return;
+    }
+
+    const next = applyVaccineAnswer(userId, text);
+
+    if (next) {
+      await messenger.sendPrivate(userId, next);
+      return;
+    }
+
+    const finished = getVaccineDraft(userId)!;
+    const city = finished.city!; // непусто: выше вернулись бы раньше, если бы город не был выбран
+    const values = finished.values;
+    cancelVaccineDraft(userId);
+
+    // "нет"/"-" → следующая дата не нужна, пусто. Иначе — пробуем разобрать в ISO для отчётов;
+    // не разобралось — сохраняем как ввели (не отвергаем ввод, просто не сможем фильтровать по нему).
+    const nextDateRaw = values.nextDate!.trim();
+    const nextDate = /^(нет|-)$/i.test(nextDateRaw) ? null : (parseDateToIso(nextDateRaw) ?? nextDateRaw);
+
+    createVaccination({
+      city,
+      vaccinationDate: parseDateToIso(values.vaccinationDate!) ?? values.vaccinationDate!,
+      vaccineType: values.vaccineType!,
+      animal: values.animal!,
+      nextDate,
+      clientContacts: values.clientContacts!,
+      createdBy: userId,
+    });
+
+    // Никаких дополнительных оговорок/напоминаний про согласие клиента — вне зоны бота.
+    await messenger.sendPrivate(userId, 'Информация добавлена в базу.');
+    return;
+  }
+
+  // Начать новую запись о вакцинации: первый шаг — выбор направления кнопкой
+  if (text === '/вакцина') {
+    const user = getUser(userId);
+    if (!canManageVaccinations(user?.role ?? null)) {
+      await messenger.sendPrivate(userId, 'Учёт вакцинаций ведут директор и управляющий.');
+      return;
+    }
+
+    const cities = fullyConfiguredCities();
+
+    if (cities.length === 0) {
+      await messenger.sendPrivate(userId, 'Нет настроенных направлений, обратитесь к директору.');
+      return;
+    }
+
+    startVaccineDraft(userId);
+    await bot.api.sendMessageToUser(
+      Number(userId),
+      'Новая запись о вакцинации. Выберите направление:\n\n/отмена — прервать',
+      { attachments: [renderCitySelectKeyboard(cities, 'vcity')] },
+    );
+    return;
+  }
+
   // Ничего не подошло
   const me = getUser(userId);
   if (!me?.role) {
@@ -414,20 +506,56 @@ bot.on('message_callback', async (ctx) => {
     return;
   }
 
-  // Меню /отчет: rep:all | rep:city | rep:date | rep:citydate — доступно только директору
+  // Выбор направления для новой записи о вакцинации (первый шаг /вакцина)
+  if (action === 'vcity') {
+    const next = setVaccineDraftCity(userId, value);
+    if (next == null) {
+      await messenger.answerCallback(eventId, 'Черновик не найден. Начните заново: /вакцина');
+      return;
+    }
+    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    await messenger.sendPrivate(userId, next);
+    return;
+  }
+
+  // /отчет, шаг 1: выбор сущности — rtype:req | rtype:vac. Доступно только директору.
+  if (action === 'rtype') {
+    if (!canManageRoles(getUser(userId)?.role ?? null)) {
+      await messenger.answerCallback(eventId, 'Доступно только директору.');
+      return;
+    }
+    if (value !== 'req' && value !== 'vac') {
+      await messenger.answerCallback(eventId, 'Не понял тип отчёта.');
+      return;
+    }
+
+    await messenger.answerCallback(eventId, value === 'req' ? 'Заявки' : 'Вакцины');
+    await bot.api.sendMessageToUser(Number(userId), 'Какой отчёт нужен?', {
+      attachments: [renderReportMenuKeyboard(value)],
+    });
+    return;
+  }
+
+  // /отчет, шаг 2: rep:<req|vac>:all|city|date|citydate — тип отчёта пронесён из шага 1 в payload
   if (action === 'rep') {
     if (!canManageRoles(getUser(userId)?.role ?? null)) {
       await messenger.answerCallback(eventId, 'Доступно только директору.');
       return;
     }
 
-    if (value === 'all') {
-      await messenger.answerCallback(eventId, 'Формирую отчёт…');
-      await sendReport(userId, {}, 'все');
+    const [reportType, filterKind] = splitFirst(value, ':');
+    if (reportType !== 'req' && reportType !== 'vac') {
+      await messenger.answerCallback(eventId, 'Не понял тип отчёта. Начните заново: /отчет');
       return;
     }
 
-    if (value === 'city') {
+    if (filterKind === 'all') {
+      await messenger.answerCallback(eventId, 'Формирую отчёт…');
+      await sendReport(userId, reportType, {}, 'все');
+      return;
+    }
+
+    if (filterKind === 'city') {
       const cities = fullyConfiguredCities();
 
       if (cities.length === 0) {
@@ -437,19 +565,19 @@ bot.on('message_callback', async (ctx) => {
 
       await messenger.answerCallback(eventId, 'Выберите направление');
       await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт?', {
-        attachments: [renderCitySelectKeyboard(cities, 'repcity')],
+        attachments: [renderCitySelectKeyboard(cities, `repcity:${reportType}`)],
       });
       return;
     }
 
-    if (value === 'date') {
-      askReportPeriod(userId);
+    if (filterKind === 'date') {
+      askReportPeriod(userId, reportType);
       await messenger.answerCallback(eventId, 'Введите период');
       await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
       return;
     }
 
-    if (value === 'citydate') {
+    if (filterKind === 'citydate') {
       const cities = fullyConfiguredCities();
 
       if (cities.length === 0) {
@@ -459,7 +587,7 @@ bot.on('message_callback', async (ctx) => {
 
       await messenger.answerCallback(eventId, 'Выберите направление');
       await bot.api.sendMessageToUser(Number(userId), 'По какому направлению нужен отчёт? Дату спросим следующим шагом.', {
-        attachments: [renderCitySelectKeyboard(cities, 'repcd')],
+        attachments: [renderCitySelectKeyboard(cities, `repcd:${reportType}`)],
       });
       return;
     }
@@ -468,26 +596,36 @@ bot.on('message_callback', async (ctx) => {
     return;
   }
 
-  // Выбор направления для отчёта (второй экран после rep:city)
+  // Выбор направления для отчёта (второй экран после rep:<type>:city). value = "<type>:<Город>".
   if (action === 'repcity') {
     if (!canManageRoles(getUser(userId)?.role ?? null)) {
       await messenger.answerCallback(eventId, 'Доступно только директору.');
       return;
     }
-    await messenger.answerCallback(eventId, `Направление: ${value}`);
-    await sendReport(userId, { city: value }, value);
+    const [reportType, city] = splitFirst(value, ':');
+    if (reportType !== 'req' && reportType !== 'vac') {
+      await messenger.answerCallback(eventId, 'Не понял тип отчёта. Начните заново: /отчет');
+      return;
+    }
+    await messenger.answerCallback(eventId, `Направление: ${city}`);
+    await sendReport(userId, reportType, { city }, city);
     return;
   }
 
-  // Выбор направления для отчёта «Направление + дата» (второй экран после rep:citydate) —
-  // город запоминаем в состоянии ожидания периода, отчёт соберётся после ввода периода текстом
+  // Выбор направления для отчёта «Направление + дата» (второй экран после rep:<type>:citydate) —
+  // город и тип запоминаем в состоянии ожидания периода, отчёт соберётся после ввода периода текстом
   if (action === 'repcd') {
     if (!canManageRoles(getUser(userId)?.role ?? null)) {
       await messenger.answerCallback(eventId, 'Доступно только директору.');
       return;
     }
-    askReportPeriod(userId, value);
-    await messenger.answerCallback(eventId, `Направление: ${value}`);
+    const [reportType, city] = splitFirst(value, ':');
+    if (reportType !== 'req' && reportType !== 'vac') {
+      await messenger.answerCallback(eventId, 'Не понял тип отчёта. Начните заново: /отчет');
+      return;
+    }
+    askReportPeriod(userId, reportType, city);
+    await messenger.answerCallback(eventId, `Направление: ${city}`);
     await messenger.sendPrivate(userId, PERIOD_USAGE_HINT);
     return;
   }

@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { listRequestsForExport, type ExportFilter } from '../db/requestsRepo.js';
+import { listVaccinationsForExport, type VaccinationExportFilter } from '../db/vaccinationsRepo.js';
 import { toRubles } from './money.js';
 import { formatMsk } from './datetime.js';
 
@@ -58,6 +59,49 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
   }
 
   sheet.getColumn('checkAmount').numFmt = '#,##0.00';
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+/**
+ * Генерация Excel-отчёта по вакцинациям. Отдельная сущность, не связана с заявками.
+ * В отличие от отчёта по заявкам — контакты клиента здесь ВКЛЮЧЕНЫ: запись о вакцинации без
+ * контактов бесполезна (директору нужно понимать, кого именно и как найти на ревакцинацию).
+ */
+export async function generateVaccinationsXlsx(filter: VaccinationExportFilter = {}): Promise<Buffer> {
+  const rows = listVaccinationsForExport(filter);
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Вакцинации');
+
+  sheet.columns = [
+    { header: '№', key: 'id', width: 8 },
+    { header: 'Дата вакцинации', key: 'vaccinationDate', width: 20 },
+    { header: 'Направление', key: 'city', width: 20 },
+    { header: 'Вакцина', key: 'vaccineType', width: 20 },
+    { header: 'Кого вакцинировали', key: 'animal', width: 24 },
+    { header: 'Следующая дата', key: 'nextDate', width: 20 },
+    { header: 'Контакты клиента', key: 'clientContacts', width: 26 },
+    { header: 'Дата записи', key: 'createdAt', width: 20 },
+    { header: 'Кто добавил', key: 'createdByName', width: 20 },
+  ];
+
+  sheet.getRow(1).font = { bold: true };
+
+  for (const r of rows) {
+    sheet.addRow({
+      id: r.id,
+      vaccinationDate: formatMsk(r.vaccinationDate),
+      city: r.city,
+      vaccineType: r.vaccineType,
+      animal: r.animal,
+      nextDate: formatMsk(r.nextDate),
+      clientContacts: r.clientContacts,
+      createdAt: formatMsk(r.createdAt),
+      createdByName: r.createdByName ?? '',
+    });
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

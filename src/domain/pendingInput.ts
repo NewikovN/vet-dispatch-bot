@@ -22,18 +22,23 @@ export function parseMoney(text: string): number | null {
   return Math.round(rubles * 100);
 }
 
+/** Тип отчёта, выбираемый первым шагом /отчет — заявки или вакцинации. */
+export type ReportType = 'req' | 'vac';
+
 /**
  * Кого ждём: период для отчёта (кнопка «По дате» или «Направление + дата» в /отчет).
  * city != null — направление уже выбрано («Направление + дата»), итоговый фильтр будет
  * {city, from, to}. city == null — период без ограничения по направлению («По дате»).
+ * type — какой отчёт строить (заявки/вакцинации), выбран на предыдущем шаге и должен
+ * дожить до момента, когда придёт текст с периодом.
  */
-const waitingForReportPeriod = new Map<string, { city: string | null }>();
+const waitingForReportPeriod = new Map<string, { city: string | null; type: ReportType }>();
 
-export function askReportPeriod(userId: string, city: string | null = null): void {
-  waitingForReportPeriod.set(userId, { city });
+export function askReportPeriod(userId: string, type: ReportType, city: string | null = null): void {
+  waitingForReportPeriod.set(userId, { city, type });
 }
 
-export function getAwaitedReportPeriod(userId: string): { city: string | null } | undefined {
+export function getAwaitedReportPeriod(userId: string): { city: string | null; type: ReportType } | undefined {
   return waitingForReportPeriod.get(userId);
 }
 

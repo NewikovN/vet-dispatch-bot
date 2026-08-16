@@ -23,7 +23,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { MSK_OFFSET_HOURS } from '../src/domain/datetime.js';
+import { MSK_OFFSET_HOURS, parseDateToIso } from '../src/domain/datetime.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, '..');
@@ -47,6 +47,7 @@ db.exec(schema);
 // Идемпотентность: чистим содержимое, схему не трогаем
 db.exec(`
   DELETE FROM requests;
+  DELETE FROM vaccinations;
   DELETE FROM users;
   DELETE FROM city_chats;
 `);
@@ -256,7 +257,103 @@ const insertAll = db.transaction((toInsert: SeedRequestRow[]) => {
 });
 insertAll(rows);
 
-console.log(`Готово: ${CITIES.length} направлений, ${USERS.length} пользователей, ${rows.length} заявок → ${SEED_DB_PATH}`);
+// ---------- Вакцинации ----------
+// Отдельная сущность, не связана с requests. created_by — из тех же seed-пользователей,
+// но только директор/управляющий (canManageVaccinations) — так же, как ведёт бот.
+const VACCINE_TYPES = ['Нобивак Трикет', 'Нобивак Рабиес', 'Мультикан-8', 'Рабизин', 'Пуревакс'];
+const VACCINE_ANIMALS = ['Барсик, кот', 'Рекс, собака', 'Мурка, кошка', 'Дружок, пёс', 'Кузя, кот', 'Белка, собака', 'Тоша, попугай'];
+
+const vaccinationManagers = USERS.filter((u) => u.role === 'director' || u.role === 'manager');
+
+/** "16.07.2026" — тот же вид, что вводит директор/управляющий в /вакцина боту */
+function ddmmyyyy(year: number, month: number, day: number): string {
+  return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`;
+}
+
+interface SeedVaccinationRow {
+  city: string;
+  vaccinationDate: string;
+  vaccineType: string;
+  animal: string;
+  nextDate: string | null;
+  clientContacts: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+const vaccinationRows: SeedVaccinationRow[] = [];
+let vseq = 0;
+
+for (const month of MONTHS) {
+  for (let i = 0; i < 3; i++) {
+    const day = 5 + i * 8; // 5, 13, 21 — гарантированно в пределах месяца
+    const city = CITIES[vseq % CITIES.length].city;
+    const creator = vaccinationManagers[vseq % vaccinationManagers.length];
+    // parseDateToIso — та же функция, что рантайм вызывает при сохранении записи из /вакцина,
+    // поэтому seed-даты фильтруются в отчёте точно так же, как настоящие.
+    const vaccinationDate = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
+
+    // Часть записей — со следующей датой вакцинации (через год), часть — без (nullable)
+    const hasNextDate = vseq % 2 === 0;
+    const nextDate = hasNextDate ? parseDateToIso(ddmmyyyy(YEAR + 1, month, day)) : null;
+
+    vaccinationRows.push({
+      city,
+      vaccinationDate,
+      vaccineType: VACCINE_TYPES[vseq % VACCINE_TYPES.length],
+      animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
+      nextDate,
+      clientContacts: fakeContacts(vseq + 100), // +100 — не повторять один-в-один с контактами заявок
+      createdBy: creator.userId,
+      createdAt: mskDate(YEAR, month, day, 12, 0),
+    });
+
+    vseq++;
+  }
+}
+
+// Граничные случаи по vaccination_date — те же стыки месяцев, что и у заявок (проверка фильтра периода)
+const VACCINATION_BOUNDARY_CASES: Array<[month: number, day: number, note: string]> = [
+  [4, 30, '(граница: 30 апреля)'],
+  [5, 1, '(граница: 1 мая)'],
+  [7, 31, '(граница: 31 июля)'],
+  [8, 1, '(граница: 1 августа)'],
+];
+
+for (const [month, day, note] of VACCINATION_BOUNDARY_CASES) {
+  const city = CITIES[vseq % CITIES.length].city;
+  const creator = vaccinationManagers[vseq % vaccinationManagers.length];
+  const vaccinationDate = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
+
+  vaccinationRows.push({
+    city,
+    vaccinationDate,
+    vaccineType: `${VACCINE_TYPES[vseq % VACCINE_TYPES.length]} ${note}`,
+    animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
+    nextDate: null,
+    clientContacts: fakeContacts(vseq + 100),
+    createdBy: creator.userId,
+    createdAt: mskDate(YEAR, month, day, 12, 0),
+  });
+
+  vseq++;
+}
+
+const insertVaccination = db.prepare(`
+  INSERT INTO vaccinations
+    (city, vaccination_date, vaccine_type, animal, next_date, client_contacts, created_by, created_at)
+  VALUES
+    (@city, @vaccinationDate, @vaccineType, @animal, @nextDate, @clientContacts, @createdBy, @createdAt)
+`);
+
+const insertAllVaccinations = db.transaction((toInsert: SeedVaccinationRow[]) => {
+  for (const row of toInsert) insertVaccination.run(row);
+});
+insertAllVaccinations(vaccinationRows);
+
+console.log(
+  `Готово: ${CITIES.length} направлений, ${USERS.length} пользователей, ${rows.length} заявок, ${vaccinationRows.length} вакцинаций → ${SEED_DB_PATH}`,
+);
 console.log('Пользователи seed-* — синтетические (нет реального MAX-аккаунта), это только данные для отчётов.');
 console.log('Чтобы проверить /отчет живым директором: DB_PATH=data-seed.db pnpm dev:max');
 console.log('— при старте бот сам назначит директором того, кто указан в .env как DIRECTOR_ID, уже в этой базе.');

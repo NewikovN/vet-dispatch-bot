@@ -77,10 +77,16 @@ export function parsePeriod(text: string): PeriodParseResult {
 export function formatMsk(iso: string | null | undefined): string {
   if (!iso) return '';
 
+  const parsed = new Date(iso);
+  // Не-ISO значение (например, дата вакцинации, которую не удалось разобрать через
+  // parseDateToIso, и она осталась как введённый текст) — возвращаем как есть, а не
+  // "NaN.NaN.NaN NaN:NaN". Запись не теряется, просто не форматируется.
+  if (Number.isNaN(parsed.getTime())) return iso;
+
   // Дата всегда хранится как момент времени в UTC. Сдвигаем на MSK_OFFSET_HOURS и читаем
   // getUTC*-компоненты у сдвинутого значения — так получаем "настенное" время МСК без
   // зависимости от часового пояса машины, на которой выполняется код.
-  const shifted = new Date(new Date(iso).getTime() + MSK_OFFSET_HOURS * 60 * 60 * 1000);
+  const shifted = new Date(parsed.getTime() + MSK_OFFSET_HOURS * 60 * 60 * 1000);
 
   const day = String(shifted.getUTCDate()).padStart(2, '0');
   const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
@@ -89,4 +95,25 @@ export function formatMsk(iso: string | null | undefined): string {
   const minutes = String(shifted.getUTCMinutes()).padStart(2, '0');
 
   return `${day}.${month}.${year} ${hours}:${minutes}`;
+}
+
+/**
+ * "16.07.2026" (день.месяц.год, разделитель "." или "-", день/месяц можно без ведущего нуля)
+ * → ISO UTC, полдень МСК этого календарного дня (полдень — чтобы точно остаться в пределах
+ * своего дня при любых дальнейших сдвигах пояса). Нужно для вакцинаций: в отличие от заявок
+ * (там свободный текст никогда не участвует в фильтрах), дата вакцинации — это и есть поле
+ * фильтра отчёта, поэтому её нужно привести к сравнимому виду, иначе диапазон по месяцу
+ * не будет работать. НЕ отвергаем нераспознанный ввод (не усложняем валидацию) — просто
+ * возвращаем null, вызывающая сторона сама решает, что делать (сохранить как есть текстом).
+ */
+export function parseDateToIso(text: string): string | null {
+  const match = /^(\d{1,2})[.\-](\d{1,2})[.\-](\d{4})$/.exec(text.trim());
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  return new Date(Date.UTC(year, month - 1, day, 12 - MSK_OFFSET_HOURS, 0, 0, 0)).toISOString();
 }
