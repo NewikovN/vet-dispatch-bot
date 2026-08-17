@@ -118,7 +118,10 @@ export interface ExportFilter {
   city?: string;
 }
 
-/** Строка для Excel-отчёта: заявка + имя принявшего врача (джойн с users). Без контактов клиента. */
+/**
+ * Строка для Excel-отчёта: заявка + имя принявшего врача (джойн с users). Контакты клиента
+ * ВКЛЮЧЕНЫ (решение заказчика) — так же, как уже сделано для отчёта по вакцинам.
+ */
 export interface ExportRow {
   id: number;
   createdAt: string;
@@ -129,6 +132,7 @@ export interface ExportRow {
   status: RequestStatus;
   doctorName: string | null;
   checkAmount: number | null;
+  clientContacts: string;
   takenAt: string | null;
   approvedAt: string | null;
   closedAt: string | null;
@@ -183,6 +187,7 @@ function toExportRow(row: any): ExportRow {
     status: row.status,
     doctorName: row.doctor_name ?? null,
     checkAmount: row.check_amount,
+    clientContacts: row.client_contacts,
     takenAt: row.taken_at,
     approvedAt: row.approved_at,
     closedAt: row.closed_at,

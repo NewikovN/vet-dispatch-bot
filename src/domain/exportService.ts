@@ -16,8 +16,8 @@ const STATUS_LABELS: Record<string, string> = {
  * Генерация Excel-отчёта по заявкам. Платформо-независимо: ничего не знает про MAX/VK,
  * не импортирует из adapters/. Вызывающая сторона (адаптер) сама решает, как доставить Buffer.
  *
- * Контакты клиента в отчёт намеренно НЕ включены — это чувствительные данные, для сводной
- * выгрузки директору не нужны. Если понадобятся — добавим отдельным явным полем по запросу.
+ * Контакты клиента ВКЛЮЧЕНЫ (решение заказчика) — так же, как уже было сделано для отчёта по
+ * вакцинам.
  */
 export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<Buffer> {
   const rows = listRequestsForExport(filter);
@@ -35,6 +35,7 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
     { header: 'Статус', key: 'status', width: 22 },
     { header: 'Врач', key: 'doctorName', width: 20 },
     { header: 'Сумма чека, ₽', key: 'checkAmount', width: 15 },
+    { header: 'Контакты клиента', key: 'clientContacts', width: 26 },
     { header: 'Принята', key: 'takenAt', width: 20 },
     { header: 'Одобрена', key: 'approvedAt', width: 20 },
     { header: 'Закрыта', key: 'closedAt', width: 20 },
@@ -53,6 +54,7 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
       status: STATUS_LABELS[r.status] ?? r.status,
       doctorName: r.doctorName ?? '',
       checkAmount: r.checkAmount != null ? toRubles(r.checkAmount) : null,
+      clientContacts: r.clientContacts,
       takenAt: formatMsk(r.takenAt),
       approvedAt: formatMsk(r.approvedAt),
       closedAt: formatMsk(r.closedAt),
@@ -67,8 +69,8 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
 
 /**
  * Генерация Excel-отчёта по вакцинациям. Отдельная сущность, не связана с заявками.
- * В отличие от отчёта по заявкам — контакты клиента здесь ВКЛЮЧЕНЫ: запись о вакцинации без
- * контактов бесполезна (директору нужно понимать, кого именно и как найти на ревакцинацию).
+ * Контакты клиента ВКЛЮЧЕНЫ (как и в отчёте по заявкам) — запись о вакцинации без контактов
+ * бесполезна (директору нужно понимать, кого именно и как найти на ревакцинацию).
  */
 export async function generateVaccinationsXlsx(filter: VaccinationExportFilter = {}): Promise<Buffer> {
   const rows = listVaccinationsForExport(filter);
