@@ -43,11 +43,11 @@ export function canManageRoles(role: Role | null): boolean {
 }
 
 export function canApprove(role: Role | null): boolean {
-  return role === 'director' || role === 'manager';
+  return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
 
 export function canReject(role: Role | null): boolean {
-  return role === 'director' || role === 'manager';
+  return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
 
 export function canSeeDetails(role: Role | null): boolean {
