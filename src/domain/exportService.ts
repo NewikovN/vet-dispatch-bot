@@ -83,6 +83,8 @@ export async function generateVaccinationsXlsx(filter: VaccinationExportFilter =
     { header: 'Вакцина', key: 'vaccineType', width: 20 },
     { header: 'Кого вакцинировали', key: 'animal', width: 24 },
     { header: 'Следующая дата', key: 'nextDate', width: 20 },
+    { header: 'Врач', key: 'doctorName', width: 20 },
+    { header: 'Сумма чека, ₽', key: 'checkAmount', width: 15 },
     { header: 'Контакты клиента', key: 'clientContacts', width: 26 },
     { header: 'Дата записи', key: 'createdAt', width: 20 },
     { header: 'Кто добавил', key: 'createdByName', width: 20 },
@@ -98,11 +100,15 @@ export async function generateVaccinationsXlsx(filter: VaccinationExportFilter =
       vaccineType: r.vaccineType,
       animal: r.animal,
       nextDate: formatMsk(r.nextDate),
+      doctorName: r.doctorName ?? '',
+      checkAmount: r.checkAmount != null ? toRubles(r.checkAmount) : null,
       clientContacts: r.clientContacts,
       createdAt: formatMsk(r.createdAt),
       createdByName: r.createdByName ?? '',
     });
   }
+
+  sheet.getColumn('checkAmount').numFmt = '#,##0.00';
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

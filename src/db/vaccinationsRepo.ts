@@ -123,7 +123,8 @@ export interface VaccinationExportFilter {
 }
 
 /**
- * Строка для Excel-отчёта: вакцинация + имя добавившего (джойн с users). Контакты клиента
+ * Строка для Excel-отчёта: вакцинация + имя добавившего (джойн с users по created_by) + имя
+ * врача, закрывшего запись (джойн с users по assigned_doctor_id), + сумма чека. Контакты клиента
  * ВКЛЮЧЕНЫ (в отличие от заявок). Имена полей здесь намеренно НЕ переименованы вслед за
  * колонкой `date` в БД (осталось `vaccinationDate`) — это отчётный, а не доменный тип, его
  * трогает domain/exportService.ts, который в этом подшаге не меняем.
@@ -135,6 +136,8 @@ export interface VaccinationExportRow {
   vaccineType: string;
   animal: string;
   nextDate: string | null;
+  doctorName: string | null;
+  checkAmount: number | null;
   clientContacts: string;
   createdAt: string;
   createdByName: string | null;
@@ -146,9 +149,15 @@ export interface VaccinationExportRow {
  * вакцинации важнее медицинское событие: директор спрашивает «сколько вакцинировали в мае», а не
  * «сколько записей вбили в мае» — запись обычно делается в тот же день, но не обязана. Только
  * чтение — атомарность не нужна. Параметры именованные, без конкатенации строк.
+ *
+ * В отчёт попадают ТОЛЬКО закрытые (`closed`) записи — тот же принцип, что и в
+ * listRequestsForExport (requestsRepo.ts): условие безусловное, не зависит от остальных
+ * фильтров и всегда действует в паре с ними через AND. В БД по-прежнему хранятся записи всех
+ * статусов (боту они нужны в работе, полный жизненный цикл, как у заявки) — фильтрация только
+ * на этапе экспорта.
  */
 export function listVaccinationsForExport(filter: VaccinationExportFilter = {}): VaccinationExportRow[] {
-  const conditions: string[] = [];
+  const conditions: string[] = [`v.status = 'closed'`];
   const params: Record<string, string> = {};
 
   if (filter.from) {
@@ -164,12 +173,13 @@ export function listVaccinationsForExport(filter: VaccinationExportFilter = {}):
     params.city = filter.city;
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const where = `WHERE ${conditions.join(' AND ')}`;
 
   const rows = db.prepare(`
-    SELECT v.*, u.display_name AS created_by_name
+    SELECT v.*, u.display_name AS created_by_name, d.display_name AS doctor_name
     FROM vaccinations v
     LEFT JOIN users u ON u.user_id = v.created_by
+    LEFT JOIN users d ON d.user_id = v.assigned_doctor_id
     ${where}
     ORDER BY v.date
   `).all(params) as any[];
@@ -185,6 +195,8 @@ function toExportRow(row: any): VaccinationExportRow {
     vaccineType: row.vaccine_type,
     animal: row.animal,
     nextDate: row.next_date,
+    doctorName: row.doctor_name ?? null,
+    checkAmount: row.check_amount,
     clientContacts: row.client_contacts,
     createdAt: row.created_at,
     createdByName: row.created_by_name ?? null,
