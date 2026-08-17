@@ -65,11 +65,12 @@ export class MaxAdapter implements Messenger {
     dmChatId: string,
     card: RequestCard & { clientContacts: string },
     requestId: number,
-  ): Promise<void> {
+  ): Promise<string> {
     const kb = renderPrivateKeyboard(requestId);
-    await this.api.sendMessageToUser(Number(dmChatId), renderDoctorCardText(card), {
+    const message = await this.api.sendMessageToUser(Number(dmChatId), renderDoctorCardText(card), {
       attachments: [kb],
     });
+    return message.body.mid;
   }
 
   /**

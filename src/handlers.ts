@@ -30,11 +30,14 @@ import { canCreateRequest, canManageRoles, canManageVaccinations, type Role } fr
 import {
   getAwaitedRequest,
   getAwaitedVaccination,
+  getDoctorCardEntity,
+  clearDoctorCardEntity,
   parseMoney,
   askReportPeriod,
   getAwaitedReportPeriod,
   clearReportPeriodAwait,
   type ReportType,
+  type EntityKind,
 } from './domain/pendingInput.js';
 import { startDraft, getDraft, setDraftCity, applyAnswer, cancelDraft } from './domain/draft.js';
 import {
@@ -67,19 +70,30 @@ function splitFirst(text: string, sep: string): [string, string] {
  * Отличить нажатие кнопки заявки от кнопки вакцинации на take/approve/reject/cancel/close —
  * cardView.ts общий для обеих сущностей (RequestCard), payload кнопки выглядит одинаково
  * ("take:5") независимо от того, заявка это или вакцинация, а requests.id и vaccinations.id —
- * НЕЗАВИСИМЫЕ последовательности (голое число может совпасть у обеих).
+ * НЕЗАВИСИМЫЕ последовательности (голое число может совпасть у обеих). Три пути, по убыванию
+ * точности:
  *
- * Основной путь — по id сообщения-карточки (group_message_id/manage_message_id): messageId
- * уникален глобально в MAX и уже хранится в обеих таблицах для рабочей/управленческой карточки,
- * так что точное совпадение однозначно решает, какая это сущность.
- *
- * Резерв — прямой поиск по id в каждой таблице: нужен для кнопки «Закрыть заявку» в личке врача —
- * её messageId нигде не хранится (так было и раньше, для одних заявок, без изменений). В этом
- * резервном пути коллизия id технически возможна (пробуем заявку первой) — узкий край случая,
- * не встречавшийся на практике (в бою вакцинация только начинает вестись, id разошлись).
+ * 1. Карта pendingInput.getDoctorCardEntity(messageId) — для кнопки «Закрыть» в личке врача.
+ *    Эта карточка (Messenger.sendDoctorCard) нигде в БД не хранится (в отличие от
+ *    group_message_id/manage_message_id), поэтому approveTake/approveVaccinationTake сами
+ *    регистрируют её messageId → сущность сразу при отправке (см. registerDoctorCardEntity).
+ *    Запись одноразовая — читаем и сразу удаляем.
+ * 2. group_message_id/manage_message_id в БД — для take/approve/reject/cancel (кнопки живут на
+ *    рабочей/управленческой карточке, оба id туда пишутся при публикации/принятии). messageId
+ *    уникален глобально в MAX, так что точное совпадение однозначно решает, какая это сущность.
+ * 3. Прямой поиск по id в каждой таблице (пробуем заявку первой) — самый крайний резерв, если
+ *    первые два пути ничего не дали (например, бот перезапускался между одобрением и «Закрыть» —
+ *    карта из пункта 1 in-memory и не переживает рестарт). Здесь коллизия id при совпадении в
+ *    обеих таблицах ОДНОВременно технически возможна — узкий край случая, не встречавшийся на
+ *    практике (вакцинация только начинает вестись, id разошлись с заявками).
  */
-function resolveEntityKind(id: number, messageId: string | undefined): 'request' | 'vaccination' | null {
+function resolveEntityKind(id: number, messageId: string | undefined): EntityKind | null {
   if (messageId) {
+    const fromDoctorCard = getDoctorCardEntity(messageId);
+    if (fromDoctorCard) {
+      clearDoctorCardEntity(messageId);
+      return fromDoctorCard;
+    }
     if (findRequestByMessageId(messageId)) return 'request';
     if (findVaccinationByMessageId(messageId)) return 'vaccination';
   }

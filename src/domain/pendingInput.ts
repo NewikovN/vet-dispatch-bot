@@ -34,6 +34,37 @@ export function clearVaccinationAwait(userId: string): void {
   waitingForVaccinationAmount.delete(userId);
 }
 
+export type EntityKind = 'request' | 'vaccination';
+
+/**
+ * Какой сущности принадлежит карточка, отправленная врачу в личку (Messenger.sendDoctorCard) —
+ * messageId → 'request' | 'vaccination'. Нужна для handlers.ts: кнопка «Закрыть» живёт в личке
+ * врача, а эта карточка, в отличие от рабочей/управленческой, нигде в БД не хранится (у нас нет
+ * dm_message_id), поэтому определить сущность по group_message_id/manage_message_id, как для
+ * take/approve/reject/cancel, для неё нельзя. requestService.ts/vaccinationService.ts
+ * регистрируют запись здесь сразу после sendDoctorCard (approveTake/approveVaccinationTake);
+ * handlers.ts читает и сразу же удаляет запись при нажатии «Закрыть» — дальше сущность уже
+ * известна по отдельным картам askAmount/askVaccinationAmount выше.
+ *
+ * In-memory, как и остальные карты в этом файле — если бот перезапустится ровно между
+ * одобрением и нажатием «Закрыть», запись потеряется, и handlers.ts падает в резервный путь
+ * (поиск по голому id в обеих таблицах — там уже возможна коллизия при одинаковом id в обеих
+ * таблицах одновременно, но это исключительно узкий и редкий случай для restart-окна).
+ */
+const doctorCardEntity = new Map<string, EntityKind>();
+
+export function registerDoctorCardEntity(messageId: string, kind: EntityKind): void {
+  doctorCardEntity.set(messageId, kind);
+}
+
+export function getDoctorCardEntity(messageId: string): EntityKind | undefined {
+  return doctorCardEntity.get(messageId);
+}
+
+export function clearDoctorCardEntity(messageId: string): void {
+  doctorCardEntity.delete(messageId);
+}
+
 /** '1500' → 150000 копеек. Вернёт null, если это не сумма. */
 export function parseMoney(text: string): number | null {
   const cleaned = text.trim().replace(/\s/g, '').replace(',', '.');

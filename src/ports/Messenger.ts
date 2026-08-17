@@ -34,8 +34,11 @@ export interface Messenger {
   /**
    * Врачу после одобрения — вся карточка заявки целиком (все поля + контакты), а не только
    * голый текст с контактами. requestId нужен, чтобы прикрепить кнопку «Закрыть заявку».
+   * Возвращает id отправленного сообщения — эта карточка нигде в БД не хранится (в отличие от
+   * group_message_id/manage_message_id), а handlers.ts нужно уметь отличить нажатие «Закрыть»
+   * по заявке от «Закрыть» по вакцинации (см. domain/pendingInput.ts: registerDoctorCardEntity).
    */
-  sendDoctorCard(dmChatId: string, card: RequestCard & { clientContacts: string }, requestId: number): Promise<void>;
+  sendDoctorCard(dmChatId: string, card: RequestCard & { clientContacts: string }, requestId: number): Promise<string>;
 
   /** Отправить файл (например, Excel-отчёт) в личку. */
   sendDocument(dmChatId: string, filename: string, content: Buffer, caption?: string): Promise<void>;

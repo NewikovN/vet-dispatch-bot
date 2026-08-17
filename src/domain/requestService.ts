@@ -15,7 +15,7 @@ import {
 } from '../db/requestsRepo.js';
 import { getUser } from '../db/usersRepo.js';
 import { getCityChats } from '../db/cityChatsRepo.js';
-import { askAmount, clearAwait } from './pendingInput.js';
+import { askAmount, clearAwait, registerDoctorCardEntity } from './pendingInput.js';
 import { formatMoney } from './money.js';
 
 /** Рабочий чат врачей: карточка ВСЕГДА нейтральная — без имени принявшего и без суммы чека */
@@ -156,11 +156,14 @@ export async function approveTake(
   }
 
   if (doctor?.dmChatId) {
-    await messenger.sendDoctorCard(
+    const dmMessageId = await messenger.sendDoctorCard(
       doctor.dmChatId,
       { ...toManageCard(req, doctor.displayName), clientContacts: req.clientContacts },
       req.id,
     );
+    // Регистрируем, чтобы handlers.ts мог отличить кнопку «Закрыть» этой заявки от вакцинации —
+    // см. domain/pendingInput.ts.
+    registerDoctorCardEntity(dmMessageId, 'request');
   }
 
   await messenger.answerCallback(eventId, 'Заявка одобрена, контакты отправлены врачу');
