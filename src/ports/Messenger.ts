@@ -2,6 +2,8 @@ export interface RequestCard {
   requestId: number;
   date: string;
   city: string;
+  /** БЕЗ номера квартиры/офиса — виден врачам всегда, включая нейтральную карточку до принятия. */
+  address: string;
   animal: string;
   problem: string;
   priceNote: string;

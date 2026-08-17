@@ -16,6 +16,8 @@ export interface Request {
   createdBy: string;
   date: string;
   city: string;
+  /** Адрес выезда БЕЗ номера квартиры/офиса — его видят все врачи ещё до принятия заявки. */
+  address: string;
   animal: string;
   problem: string;
   priceNote: string;

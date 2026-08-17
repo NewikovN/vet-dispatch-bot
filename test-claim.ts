@@ -12,6 +12,7 @@ const id = createRequest({
   createdBy: 'disp1',
   date: '2026-07-16',
   city: 'Владимир',
+  address: 'ул. Тестовая, 1',
   animal: 'Кот',
   problem: 'Не ест',
   priceNote: 'Осмотр 1500',

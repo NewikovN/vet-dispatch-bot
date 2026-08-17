@@ -48,6 +48,7 @@ if (rows.length === 0) {
     createdBy: userId,
     date: '01.01.2026',
     city: 'Тестовый город (manual-test)',
+    address: 'ул. Тестовая, 1',
     animal: 'Тест-животное',
     problem: 'Тест: проверка фильтра отчёта на closed',
     priceNote: '',

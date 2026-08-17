@@ -5,6 +5,7 @@ export interface NewRequest {
   createdBy: string;
   date: string;
   city: string;
+  address: string;
   animal: string;
   problem: string;
   priceNote: string;
@@ -14,9 +15,9 @@ export interface NewRequest {
 export function createRequest(data: NewRequest): number {
   const stmt = db.prepare(`
     INSERT INTO requests
-      (created_by, date, city, animal, problem, price_note, client_contacts, created_at)
+      (created_by, date, city, address, animal, problem, price_note, client_contacts, created_at)
     VALUES
-      (@createdBy, @date, @city, @animal, @problem, @priceNote, @clientContacts, @createdAt)
+      (@createdBy, @date, @city, @address, @animal, @problem, @priceNote, @clientContacts, @createdAt)
   `);
   const info = stmt.run({ ...data, createdAt: new Date().toISOString() });
   return Number(info.lastInsertRowid);
@@ -41,6 +42,7 @@ function toRequest(row: any): Request {
     createdBy: row.created_by,
     date: row.date,
     city: row.city,
+    address: row.address,
     animal: row.animal,
     problem: row.problem,
     priceNote: row.price_note,

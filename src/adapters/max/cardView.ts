@@ -11,6 +11,7 @@ export function renderCardText(card: RequestCard): string {
     ``,
     `Дата: ${card.date}`,
     `Город: ${card.city}`,
+    `Адрес: ${card.address}`,
     `Животное: ${card.animal}`,
     `Проблема: ${card.problem}`,
   ];
@@ -41,6 +42,7 @@ export function renderManageCardText(card: RequestCard): string {
     ``,
     `Дата: ${card.date}`,
     `Город: ${card.city}`,
+    `Адрес: ${card.address}`,
     `Животное: ${card.animal}`,
     `Проблема: ${card.problem}`,
   ];
@@ -78,6 +80,7 @@ export function renderDoctorCardText(card: RequestCard & { clientContacts: strin
     ``,
     `Дата: ${card.date}`,
     `Город: ${card.city}`,
+    `Адрес: ${card.address}`,
     `Животное: ${card.animal}`,
     `Проблема: ${card.problem}`,
   ];

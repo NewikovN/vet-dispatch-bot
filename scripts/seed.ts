@@ -104,6 +104,8 @@ const PROBLEMS = [
 ];
 const PRICE_NOTES = ['Осмотр 1500', 'Выезд + осмотр 2000', 'Согласовано по телефону', '', 'Осмотр + анализы 3500'];
 const CLIENT_NAMES = ['Тест Клиент', 'Иван Тестов', 'Мария Пробная', 'Пётр Демо', 'Анна Образцова'];
+// БЕЗ квартиры/офиса — как и вводит диспетчер в поле address (квартира дублируется отдельно в contacts)
+const ADDRESSES = ['ул. Ленина, 10', 'пр-т Мира, 25', 'ул. Садовая, 3', 'ул. Гагарина, 47', 'ул. Пушкина, 8'];
 
 // Смесь статусов с перевесом в сторону закрытых/одобренных — чтобы было на чём проверять суммы чеков
 const STATUS_CYCLE = [
@@ -143,10 +145,17 @@ function fakeContacts(i: number): string {
   return `${name}, ${phone}`;
 }
 
+/** Тот же адрес, что в поле address, но с квартирой — как реально вводит диспетчер в contacts */
+function fakeContactsWithApartment(i: number): string {
+  const apartment = 1 + (i % 60);
+  return `${fakeContacts(i)}, ${ADDRESSES[i % ADDRESSES.length]}, кв. ${apartment}`;
+}
+
 interface SeedRequestRow {
   createdBy: string;
   date: string;
   city: string;
+  address: string;
   animal: string;
   problem: string;
   priceNote: string;
@@ -193,10 +202,11 @@ for (const month of MONTHS) {
       createdBy: dispatcher.userId,
       date: fakeDepartureDate(createdAt),
       city,
+      address: ADDRESSES[seq % ADDRESSES.length],
       animal: ANIMALS[seq % ANIMALS.length],
       problem: PROBLEMS[seq % PROBLEMS.length],
       priceNote: PRICE_NOTES[seq % PRICE_NOTES.length],
-      clientContacts: fakeContacts(seq),
+      clientContacts: fakeContactsWithApartment(seq),
       status,
       assignedDoctorId,
       checkAmount,
@@ -227,10 +237,11 @@ for (const [month, day, hour, minute, note] of BOUNDARY_CASES) {
     createdBy: dispatcher.userId,
     date: fakeDepartureDate(createdAt),
     city,
+    address: ADDRESSES[seq % ADDRESSES.length],
     animal: ANIMALS[seq % ANIMALS.length],
     problem: `[граница месяца] ${note}`,
     priceNote: '',
-    clientContacts: fakeContacts(seq),
+    clientContacts: fakeContactsWithApartment(seq),
     status: 'open',
     assignedDoctorId: null,
     checkAmount: null,
@@ -245,10 +256,10 @@ for (const [month, day, hour, minute, note] of BOUNDARY_CASES) {
 
 const insertRequest = db.prepare(`
   INSERT INTO requests
-    (created_by, date, city, animal, problem, price_note, client_contacts, status,
+    (created_by, date, city, address, animal, problem, price_note, client_contacts, status,
      assigned_doctor_id, check_amount, created_at, taken_at, approved_at, closed_at)
   VALUES
-    (@createdBy, @date, @city, @animal, @problem, @priceNote, @clientContacts, @status,
+    (@createdBy, @date, @city, @address, @animal, @problem, @priceNote, @clientContacts, @status,
      @assignedDoctorId, @checkAmount, @createdAt, @takenAt, @approvedAt, @closedAt)
 `);
 

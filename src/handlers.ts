@@ -369,6 +369,7 @@ bot.on('message_created', async (ctx) => {
       createdBy: userId,
       date: values.date!,
       city,
+      address: values.address!,
       animal: values.animal!,
       problem: values.problem!,
       priceNote: values.priceNote!,

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS requests (
   created_by         TEXT NOT NULL REFERENCES users(user_id),
   date               TEXT NOT NULL,
   city               TEXT NOT NULL,
+  address            TEXT NOT NULL DEFAULT '',
   animal             TEXT NOT NULL,
   problem            TEXT NOT NULL,
   price_note         TEXT NOT NULL DEFAULT '',
