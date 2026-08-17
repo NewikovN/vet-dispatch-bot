@@ -26,6 +26,12 @@ export interface Messenger {
   /** Личное сообщение — сюда уходят контакты клиента. */
   sendPrivate(dmChatId: string, text: string, requestId?: number): Promise<void>;
 
+  /**
+   * Врачу после одобрения — вся карточка заявки целиком (все поля + контакты), а не только
+   * голый текст с контактами. requestId нужен, чтобы прикрепить кнопку «Закрыть заявку».
+   */
+  sendDoctorCard(dmChatId: string, card: RequestCard & { clientContacts: string }, requestId: number): Promise<void>;
+
   /** Отправить файл (например, Excel-отчёт) в личку. */
   sendDocument(dmChatId: string, filename: string, content: Buffer, caption?: string): Promise<void>;
 

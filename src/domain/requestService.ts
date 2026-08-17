@@ -146,9 +146,9 @@ export async function approveTake(
   }
 
   if (doctor?.dmChatId) {
-    await messenger.sendPrivate(
+    await messenger.sendDoctorCard(
       doctor.dmChatId,
-      `Заявка №${req.id} одобрена.\n\nКонтакты клиента:\n${req.clientContacts}`,
+      { ...toManageCard(req, doctor.displayName), clientContacts: req.clientContacts },
       req.id,
     );
   }

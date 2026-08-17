@@ -67,6 +67,30 @@ export function renderManageCardText(card: RequestCard): string {
   return lines.join('\n');
 }
 
+/**
+ * Личка врача после одобрения: ВСЯ карточка заявки целиком (те же поля, что в управленческом
+ * чате) + контакты клиента в конце. Раньше сюда уходил только голый текст с контактами —
+ * теперь врач сразу видит дату/город/животное/проблему/оговорённую цену, не листая рабочий чат.
+ */
+export function renderDoctorCardText(card: RequestCard & { clientContacts: string }): string {
+  const lines = [
+    `📋 Заявка №${card.requestId}`,
+    ``,
+    `Дата: ${card.date}`,
+    `Город: ${card.city}`,
+    `Животное: ${card.animal}`,
+    `Проблема: ${card.problem}`,
+  ];
+
+  if (card.priceNote) lines.push(`Оговорено: ${card.priceNote}`);
+  lines.push('');
+  lines.push('✅ Заявка одобрена, вам в работу');
+  lines.push('');
+  lines.push(`Контакты клиента:\n${card.clientContacts}`);
+
+  return lines.join('\n');
+}
+
 /** Клавиатура рабочего чата: только «Принять», пока заявка свободна */
 export function renderWorkKeyboard(card: RequestCard): InlineKeyboard | undefined {
   if (card.status !== 'open') return undefined;

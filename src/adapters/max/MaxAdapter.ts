@@ -6,6 +6,7 @@ import type { Messenger, RequestCard } from '../../ports/Messenger.js';
 import {
   renderCardText,
   renderManageCardText,
+  renderDoctorCardText,
   renderWorkKeyboard,
   renderManageKeyboard,
   renderPrivateKeyboard,
@@ -56,6 +57,18 @@ export class MaxAdapter implements Messenger {
     const kb = requestId != null ? renderPrivateKeyboard(requestId) : undefined;
     await this.api.sendMessageToUser(Number(dmChatId), text, {
       attachments: kb ? [kb] : undefined,
+    });
+  }
+
+  /** Врачу после одобрения — вся карточка целиком (renderDoctorCardText) + кнопка «Закрыть заявку». */
+  async sendDoctorCard(
+    dmChatId: string,
+    card: RequestCard & { clientContacts: string },
+    requestId: number,
+  ): Promise<void> {
+    const kb = renderPrivateKeyboard(requestId);
+    await this.api.sendMessageToUser(Number(dmChatId), renderDoctorCardText(card), {
+      attachments: [kb],
     });
   }
 
