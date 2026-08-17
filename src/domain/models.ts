@@ -80,7 +80,7 @@ export function canCreateRequest(role: Role | null): boolean {
 }
 
 export function canTakeRequest(role: Role | null): boolean {
-  return role === 'doctor';
+  return role === 'doctor' || role === 'dispatcher' || role === 'manager' || role === 'director';
 }
 
 export function canManageRoles(role: Role | null): boolean {

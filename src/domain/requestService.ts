@@ -85,7 +85,7 @@ export async function takeRequest(
   const doctor = getUser(doctorId);
 
   if (!canTakeRequest(doctor?.role ?? null)) {
-    await messenger.answerCallback(eventId, 'Заявки принимают только врачи');
+    await messenger.answerCallback(eventId, 'Принимать заявки может только сотрудник с назначенной ролью — обратитесь к директору');
     return;
   }
 
@@ -166,7 +166,7 @@ export async function approveTake(
     registerDoctorCardEntity(dmMessageId, 'request');
   }
 
-  await messenger.answerCallback(eventId, 'Заявка одобрена, контакты отправлены врачу');
+  await messenger.answerCallback(eventId, 'Заявка одобрена, контакты отправлены принявшему');
 }
 
 /** Управляющий/директор отклонил приём → заявка снова свободна */

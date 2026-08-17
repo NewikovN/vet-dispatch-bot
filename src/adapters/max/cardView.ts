@@ -75,7 +75,7 @@ export function renderManageCardText(card: RequestCard): string {
       lines.push(`🔵 Принял: ${card.doctorName ?? '—'}, ожидает одобрения`);
       break;
     case 'approved':
-      lines.push(`✅ Одобрено, врач: ${card.doctorName ?? '—'}`);
+      lines.push(`✅ Одобрено, принял: ${card.doctorName ?? '—'}`);
       break;
     case 'closed':
       lines.push(`✅ Закрыл: ${card.doctorName ?? '—'}`);

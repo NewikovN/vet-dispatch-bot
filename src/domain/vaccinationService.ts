@@ -107,7 +107,7 @@ export async function takeVaccination(
   const doctor = getUser(doctorId);
 
   if (!canTakeRequest(doctor?.role ?? null)) {
-    await messenger.answerCallback(eventId, 'Записи о вакцинации принимают только врачи');
+    await messenger.answerCallback(eventId, 'Принимать записи о вакцинации может только сотрудник с назначенной ролью — обратитесь к директору');
     return;
   }
 
@@ -188,7 +188,7 @@ export async function approveVaccinationTake(
     registerDoctorCardEntity(dmMessageId, 'vaccination');
   }
 
-  await messenger.answerCallback(eventId, 'Запись одобрена, контакты отправлены врачу');
+  await messenger.answerCallback(eventId, 'Запись одобрена, контакты отправлены принявшему');
 }
 
 /** Управляющий/директор/диспетчер отклонил приём → запись снова свободна */
