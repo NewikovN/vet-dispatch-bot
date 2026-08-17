@@ -52,7 +52,10 @@ function toGroupCard(vac: Vaccination): RequestCard {
   };
 }
 
-/** Управленческий чат: карточка с деталями — кто принял, сумма чека */
+/**
+ * Управленческий чат: карточка с деталями — кто принял, сумма чека, и (решение заказчика)
+ * контакты клиента ВСЕГДА, на любом статусе — не только после одобрения.
+ */
 function toManageCard(vac: Vaccination, doctorName?: string): RequestCard {
   return {
     requestId: vac.id,
@@ -67,6 +70,7 @@ function toManageCard(vac: Vaccination, doctorName?: string): RequestCard {
     checkAmount: vac.checkAmount ?? undefined,
     vaccineType: vac.vaccineType,
     nextDate: vac.nextDate,
+    clientContacts: vac.clientContacts,
   };
 }
 

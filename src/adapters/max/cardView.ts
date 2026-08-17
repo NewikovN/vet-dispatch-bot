@@ -62,7 +62,11 @@ export function renderCardText(card: RequestCard): string {
   return lines.join('\n');
 }
 
-/** Управленческий чат: карточка с деталями — кто принял, сумма чека */
+/**
+ * Управленческий чат: карточка с деталями — кто принял, сумма чека, и (решение заказчика)
+ * контакты клиента ВСЕГДА, на любом статусе — не только после одобрения. Рабочая карточка
+ * (renderCardText) контакты по-прежнему не показывает никогда.
+ */
 export function renderManageCardText(card: RequestCard): string {
   const lines = renderHeaderLines(card);
   lines.push('');
@@ -84,6 +88,11 @@ export function renderManageCardText(card: RequestCard): string {
     case 'cancelled':
       lines.push('🚫 Отменена');
       break;
+  }
+
+  if (card.clientContacts) {
+    lines.push('');
+    lines.push(`Контакты клиента:\n${card.clientContacts}`);
   }
 
   return lines.join('\n');

@@ -32,7 +32,10 @@ function toGroupCard(req: Request): RequestCard {
   };
 }
 
-/** Управленческий чат: карточка с деталями — кто принял, сумма чека */
+/**
+ * Управленческий чат: карточка с деталями — кто принял, сумма чека, и (решение заказчика)
+ * контакты клиента ВСЕГДА, на любом статусе — не только после одобрения.
+ */
 function toManageCard(req: Request, doctorName?: string): RequestCard {
   return {
     requestId: req.id,
@@ -45,6 +48,7 @@ function toManageCard(req: Request, doctorName?: string): RequestCard {
     status: req.status,
     doctorName,
     checkAmount: req.checkAmount ?? undefined,
+    clientContacts: req.clientContacts,
   };
 }
 

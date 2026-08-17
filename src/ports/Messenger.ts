@@ -13,6 +13,13 @@ export interface RequestCard {
   /** Только у карточки вакцинации (vaccinationService.ts) — заявке не задаются. */
   vaccineType?: string;
   nextDate?: string | null;
+  /**
+   * Только у управленческой карточки (toManageCard в requestService.ts/vaccinationService.ts) —
+   * видны там ВСЕГДА, на любом статусе (решение заказчика). Рабочая карточка (toGroupCard) это
+   * поле не задаёт — контакты по-прежнему раскрываются врачу личным сообщением (sendDoctorCard)
+   * только после одобрения.
+   */
+  clientContacts?: string;
 }
 
 export interface Messenger {
