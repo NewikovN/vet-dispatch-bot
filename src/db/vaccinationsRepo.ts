@@ -43,6 +43,18 @@ export function getVaccination(id: number): Vaccination | null {
   return row ? toVaccination(row) : null;
 }
 
+/**
+ * Найти запись о вакцинации по id сообщения-карточки — та же причина, что у
+ * requestsRepo.findRequestByMessageId (см. там): нужно отличить кнопку вакцинации от кнопки
+ * заявки в message_callback, независимые последовательности id голым числом не различить.
+ */
+export function findVaccinationByMessageId(messageId: string): Vaccination | null {
+  const row = db
+    .prepare('SELECT * FROM vaccinations WHERE group_message_id = ? OR manage_message_id = ?')
+    .get(messageId, messageId) as any;
+  return row ? toVaccination(row) : null;
+}
+
 export function setGroupMessageId(id: number, messageId: string): void {
   db.prepare('UPDATE vaccinations SET group_message_id = ? WHERE id = ?').run(messageId, id);
 }

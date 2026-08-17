@@ -40,6 +40,19 @@ export function getRequest(id: number): Request | null {
   return row ? toRequest(row) : null;
 }
 
+/**
+ * Найти заявку по id сообщения-карточки (рабочей ИЛИ управленческой) — нужно, чтобы отличить
+ * нажатие кнопки заявки от кнопки вакцинации в message_callback: requests и vaccinations имеют
+ * независимые последовательности id (голое число из payload может совпасть у обеих), а
+ * messageId уникален глобально и уже хранится в group_message_id/manage_message_id.
+ */
+export function findRequestByMessageId(messageId: string): Request | null {
+  const row = db
+    .prepare('SELECT * FROM requests WHERE group_message_id = ? OR manage_message_id = ?')
+    .get(messageId, messageId) as any;
+  return row ? toRequest(row) : null;
+}
+
 export function setGroupMessageId(id: number, messageId: string): void {
   db.prepare('UPDATE requests SET group_message_id = ? WHERE id = ?').run(messageId, id);
 }

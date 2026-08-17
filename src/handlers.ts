@@ -17,9 +17,19 @@ import {
 } from './adapters/max/cardView.js';
 
 import { publishRequest, takeRequest, approveTake, rejectTake, cancelOpenRequest, startClosing, finishClosing } from './domain/requestService.js';
+import {
+  publishVaccination,
+  takeVaccination,
+  approveVaccinationTake,
+  rejectVaccinationTake,
+  cancelOpenVaccination,
+  startClosingVaccination,
+  finishClosingVaccination,
+} from './domain/vaccinationService.js';
 import { canCreateRequest, canManageRoles, canManageVaccinations, type Role } from './domain/models.js';
 import {
   getAwaitedRequest,
+  getAwaitedVaccination,
   parseMoney,
   askReportPeriod,
   getAwaitedReportPeriod,
@@ -39,7 +49,8 @@ import { parsePeriod, parseDateToIso } from './domain/datetime.js';
 
 import { ensureUser, setDmChatId, setRole, getUser, listActiveUsers, removeUser } from './db/usersRepo.js';
 import { listCityChats, setWorkChat, setManageChat } from './db/cityChatsRepo.js';
-import { createVaccination } from './db/vaccinationsRepo.js';
+import { getRequest, findRequestByMessageId } from './db/requestsRepo.js';
+import { getVaccination, findVaccinationByMessageId } from './db/vaccinationsRepo.js';
 
 const messenger = new MaxAdapter(bot.api);
 
@@ -50,6 +61,31 @@ type ReportFilter = { city?: string; from?: string; to?: string };
 function splitFirst(text: string, sep: string): [string, string] {
   const i = text.indexOf(sep);
   return i === -1 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
+}
+
+/**
+ * Отличить нажатие кнопки заявки от кнопки вакцинации на take/approve/reject/cancel/close —
+ * cardView.ts общий для обеих сущностей (RequestCard), payload кнопки выглядит одинаково
+ * ("take:5") независимо от того, заявка это или вакцинация, а requests.id и vaccinations.id —
+ * НЕЗАВИСИМЫЕ последовательности (голое число может совпасть у обеих).
+ *
+ * Основной путь — по id сообщения-карточки (group_message_id/manage_message_id): messageId
+ * уникален глобально в MAX и уже хранится в обеих таблицах для рабочей/управленческой карточки,
+ * так что точное совпадение однозначно решает, какая это сущность.
+ *
+ * Резерв — прямой поиск по id в каждой таблице: нужен для кнопки «Закрыть заявку» в личке врача —
+ * её messageId нигде не хранится (так было и раньше, для одних заявок, без изменений). В этом
+ * резервном пути коллизия id технически возможна (пробуем заявку первой) — узкий край случая,
+ * не встречавшийся на практике (в бою вакцинация только начинает вестись, id разошлись).
+ */
+function resolveEntityKind(id: number, messageId: string | undefined): 'request' | 'vaccination' | null {
+  if (messageId) {
+    if (findRequestByMessageId(messageId)) return 'request';
+    if (findVaccinationByMessageId(messageId)) return 'vaccination';
+  }
+  if (getRequest(id)) return 'request';
+  if (getVaccination(id)) return 'vaccination';
+  return null;
 }
 
 /**
@@ -166,16 +202,28 @@ bot.on('message_created', async (ctx) => {
   ensureUser(userId, message.sender?.name ?? 'Без имени');
   setDmChatId(userId, userId);
 
-  // Ждём сумму чека?
-  const awaited = getAwaitedRequest(userId);
-  if (awaited != null) {
+  // Ждём сумму чека (заявка)?
+  const awaitedRequest = getAwaitedRequest(userId);
+  if (awaitedRequest != null) {
     const amount = parseMoney(text);
     if (amount == null) {
       await messenger.sendPrivate(userId, 'Не понял сумму. Введите число, например: 1500');
       return;
     }
     // chatId в finishClosing сейчас не используется (обе карточки находятся через город заявки)
-    await finishClosing(messenger, awaited, userId, amount, '');
+    await finishClosing(messenger, awaitedRequest, userId, amount, '');
+    return;
+  }
+
+  // Ждём сумму чека (вакцинация)? Отдельная карта ожидания — см. pendingInput.ts.
+  const awaitedVaccination = getAwaitedVaccination(userId);
+  if (awaitedVaccination != null) {
+    const amount = parseMoney(text);
+    if (amount == null) {
+      await messenger.sendPrivate(userId, 'Не понял сумму. Введите число, например: 1500');
+      return;
+    }
+    await finishClosingVaccination(messenger, awaitedVaccination, userId, amount);
     return;
   }
 
@@ -431,19 +479,28 @@ bot.on('message_created', async (ctx) => {
     // не разобралось — сохраняем как ввели (не отвергаем ввод, просто не сможем фильтровать по нему).
     const nextDateRaw = values.nextDate!.trim();
     const nextDate = /^(нет|-)$/i.test(nextDateRaw) ? null : (parseDateToIso(nextDateRaw) ?? nextDateRaw);
+    // Дата вакцинации — та же логика: ISO для фильтра отчёта по периоду, не разобралось — как ввели.
+    const date = parseDateToIso(values.date!) ?? values.date!;
 
-    createVaccination({
-      city,
-      vaccinationDate: parseDateToIso(values.vaccinationDate!) ?? values.vaccinationDate!,
-      vaccineType: values.vaccineType!,
-      animal: values.animal!,
-      nextDate,
-      clientContacts: values.clientContacts!,
+    const result = await publishVaccination(messenger, {
       createdBy: userId,
+      date,
+      city,
+      address: values.address!,
+      animal: values.animal!,
+      problem: values.problem!,
+      priceNote: values.priceNote!,
+      clientContacts: values.clientContacts!,
+      vaccineType: values.vaccineType!,
+      nextDate,
     });
 
-    // Никаких дополнительных оговорок/напоминаний про согласие клиента — вне зоны бота.
-    await messenger.sendPrivate(userId, 'Информация добавлена в базу.');
+    if (!result.ok) {
+      await messenger.sendPrivate(userId, result.error ?? 'Не удалось опубликовать запись о вакцинации.');
+      return;
+    }
+
+    await messenger.sendPrivate(userId, 'Запись о вакцинации опубликована в рабочем чате.');
     return;
   }
 
@@ -638,23 +695,58 @@ bot.on('message_callback', async (ctx) => {
     return;
   }
 
+  const ACTIONS = ['take', 'approve', 'reject', 'cancel', 'close'] as const;
+  if (!(ACTIONS as readonly string[]).includes(action)) {
+    await messenger.answerCallback(eventId, 'Неизвестное действие.');
+    return;
+  }
+
+  // take/approve/reject/cancel — по messageId карточки (см. resolveEntityKind); close (кнопка в
+  // личке врача) messageId не хранит — резервный путь по id внутри самой resolveEntityKind.
+  const cardMessageId = ctx.messageId != null ? String(ctx.messageId) : undefined;
+  const kind = resolveEntityKind(requestId, cardMessageId);
+
+  if (kind === null) {
+    await messenger.answerCallback(eventId, 'Запись не найдена.');
+    return;
+  }
+
+  if (kind === 'request') {
+    switch (action) {
+      case 'take':
+        await takeRequest(messenger, requestId, userId, chatId, eventId);
+        break;
+      case 'approve':
+        await approveTake(messenger, requestId, userId, eventId);
+        break;
+      case 'reject':
+        await rejectTake(messenger, requestId, userId, eventId);
+        break;
+      case 'cancel':
+        await cancelOpenRequest(messenger, requestId, userId, eventId);
+        break;
+      case 'close':
+        await startClosing(messenger, requestId, userId, eventId);
+        break;
+    }
+    return;
+  }
+
   switch (action) {
     case 'take':
-      await takeRequest(messenger, requestId, userId, chatId, eventId);
+      await takeVaccination(messenger, requestId, userId, chatId, eventId);
       break;
     case 'approve':
-      await approveTake(messenger, requestId, userId, eventId);
+      await approveVaccinationTake(messenger, requestId, userId, eventId);
       break;
     case 'reject':
-      await rejectTake(messenger, requestId, userId, eventId);
+      await rejectVaccinationTake(messenger, requestId, userId, eventId);
       break;
     case 'cancel':
-      await cancelOpenRequest(messenger, requestId, userId, eventId);
+      await cancelOpenVaccination(messenger, requestId, userId, eventId);
       break;
     case 'close':
-      await startClosing(messenger, requestId, userId, eventId);
+      await startClosingVaccination(messenger, requestId, userId, eventId);
       break;
-    default:
-      await messenger.answerCallback(eventId, 'Неизвестное действие.');
   }
 });
