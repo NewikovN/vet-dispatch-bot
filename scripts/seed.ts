@@ -269,10 +269,32 @@ const insertAll = db.transaction((toInsert: SeedRequestRow[]) => {
 insertAll(rows);
 
 // ---------- Вакцинации ----------
-// Отдельная сущность, не связана с requests. created_by — из тех же seed-пользователей,
-// но только директор/управляющий (canManageVaccinations) — так же, как ведёт бот.
+// Отдельная ТАБЛИЦА, не связана с requests (жёсткое требование заказчика — не сливать), но с
+// тем же жизненным циклом, что и заявка (open/taken/approved/closed/cancelled) + те же общие
+// поля (address/problem/priceNote), плюс два собственных: vaccineType, nextDate. created_by —
+// из тех же seed-пользователей, но только директор/управляющий (canManageVaccinations,
+// создаёт запись) — так же, как ведёт бот; кто ПРИНЯЛ и ЗАКРЫЛ — уже врач (assignedDoctorId),
+// как у заявки.
 const VACCINE_TYPES = ['Нобивак Трикет', 'Нобивак Рабиес', 'Мультикан-8', 'Рабизин', 'Пуревакс'];
 const VACCINE_ANIMALS = ['Барсик, кот', 'Рекс, собака', 'Мурка, кошка', 'Дружок, пёс', 'Кузя, кот', 'Белка, собака', 'Тоша, попугай'];
+const VACCINE_NOTES = ['-', 'Стандартная схема', 'Повторная вакцинация', '-', 'Плановая, без особенностей'];
+const VACCINE_PRICE_NOTES = ['Выезд 1000', 'Выезд + осмотр 1500', 'Согласовано по телефону', '', 'Выезд 800'];
+
+// Тот же принцип смеси, что у STATUS_CYCLE заявок, + один cancelled — у вакцинации теперь тот же
+// полный жизненный цикл, что у заявки, есть на чём проверять и отмену, и фильтр "только closed"
+// в отчёте.
+const VACCINATION_STATUS_CYCLE = [
+  'open',
+  'taken',
+  'approved',
+  'closed',
+  'closed',
+  'approved',
+  'cancelled',
+  'open',
+  'closed',
+  'taken',
+] as const;
 
 const vaccinationManagers = USERS.filter((u) => u.role === 'director' || u.role === 'manager');
 
@@ -282,14 +304,24 @@ function ddmmyyyy(year: number, month: number, day: number): string {
 }
 
 interface SeedVaccinationRow {
-  city: string;
-  vaccinationDate: string;
-  vaccineType: string;
-  animal: string;
-  nextDate: string | null;
-  clientContacts: string;
   createdBy: string;
+  date: string;
+  city: string;
+  address: string;
+  animal: string;
+  problem: string;
+  priceNote: string;
+  clientContacts: string;
+  vaccineType: string;
+  nextDate: string | null;
+  status: string;
+  assignedDoctorId: string | null;
+  checkAmount: number | null;
   createdAt: string;
+  takenAt: string | null;
+  approvedAt: string | null;
+  closedAt: string | null;
+  cancelledAt: string | null;
 }
 
 const vaccinationRows: SeedVaccinationRow[] = [];
@@ -300,30 +332,66 @@ for (const month of MONTHS) {
     const day = 5 + i * 8; // 5, 13, 21 — гарантированно в пределах месяца
     const city = CITIES[vseq % CITIES.length].city;
     const creator = vaccinationManagers[vseq % vaccinationManagers.length];
+    const doctor = doctors[vseq % doctors.length];
+    const status = VACCINATION_STATUS_CYCLE[vseq % VACCINATION_STATUS_CYCLE.length];
+    const createdAt = mskDate(YEAR, month, day, 12, 0);
     // parseDateToIso — та же функция, что рантайм вызывает при сохранении записи из /вакцина,
     // поэтому seed-даты фильтруются в отчёте точно так же, как настоящие.
-    const vaccinationDate = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
+    const date = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
 
     // Часть записей — со следующей датой вакцинации (через год), часть — без (nullable)
     const hasNextDate = vseq % 2 === 0;
     const nextDate = hasNextDate ? parseDateToIso(ddmmyyyy(YEAR + 1, month, day)) : null;
 
+    let assignedDoctorId: string | null = null;
+    let takenAt: string | null = null;
+    let approvedAt: string | null = null;
+    let closedAt: string | null = null;
+    let cancelledAt: string | null = null;
+    let checkAmount: number | null = null;
+
+    if (status === 'cancelled') {
+      cancelledAt = shiftHours(createdAt, 1);
+    } else if (status !== 'open') {
+      assignedDoctorId = doctor.userId;
+      takenAt = shiftHours(createdAt, 1 + (vseq % 5));
+    }
+    if (status === 'approved' || status === 'closed') {
+      approvedAt = shiftHours(takenAt!, 1 + (vseq % 3));
+    }
+    if (status === 'closed') {
+      closedAt = shiftHours(approvedAt!, 2 + (vseq % 6));
+      checkAmount = (800 + (vseq % 15) * 200) * 100; // копейки: 800–3600 ₽
+    }
+
     vaccinationRows.push({
-      city,
-      vaccinationDate,
-      vaccineType: VACCINE_TYPES[vseq % VACCINE_TYPES.length],
-      animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
-      nextDate,
-      clientContacts: fakeContacts(vseq + 100), // +100 — не повторять один-в-один с контактами заявок
       createdBy: creator.userId,
-      createdAt: mskDate(YEAR, month, day, 12, 0),
+      date,
+      city,
+      address: ADDRESSES[vseq % ADDRESSES.length],
+      animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
+      problem: VACCINE_NOTES[vseq % VACCINE_NOTES.length],
+      priceNote: VACCINE_PRICE_NOTES[vseq % VACCINE_PRICE_NOTES.length],
+      clientContacts: fakeContactsWithApartment(vseq + 100), // +100 — не повторять один-в-один с контактами заявок
+      vaccineType: VACCINE_TYPES[vseq % VACCINE_TYPES.length],
+      nextDate,
+      status,
+      assignedDoctorId,
+      checkAmount,
+      createdAt,
+      takenAt,
+      approvedAt,
+      closedAt,
+      cancelledAt,
     });
 
     vseq++;
   }
 }
 
-// Граничные случаи по vaccination_date — те же стыки месяцев, что и у заявок (проверка фильтра периода)
+// Граничные случаи по дате вакцинации — те же стыки месяцев, что и у заявок (проверка фильтра
+// периода). ВСЕГДА closed (с врачом и чеком) — иначе фильтр "только closed" в отчёте молчаливо
+// исключил бы их, и проверка границ месяца оказалась бы нерабочей.
 const VACCINATION_BOUNDARY_CASES: Array<[month: number, day: number, note: string]> = [
   [4, 30, '(граница: 30 апреля)'],
   [5, 1, '(граница: 1 мая)'],
@@ -334,17 +402,32 @@ const VACCINATION_BOUNDARY_CASES: Array<[month: number, day: number, note: strin
 for (const [month, day, note] of VACCINATION_BOUNDARY_CASES) {
   const city = CITIES[vseq % CITIES.length].city;
   const creator = vaccinationManagers[vseq % vaccinationManagers.length];
-  const vaccinationDate = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
+  const doctor = doctors[vseq % doctors.length];
+  const date = parseDateToIso(ddmmyyyy(YEAR, month, day))!;
+  const createdAt = mskDate(YEAR, month, day, 12, 0);
+  const takenAt = shiftHours(createdAt, 1);
+  const approvedAt = shiftHours(takenAt, 1);
+  const closedAt = shiftHours(approvedAt, 2);
 
   vaccinationRows.push({
-    city,
-    vaccinationDate,
-    vaccineType: `${VACCINE_TYPES[vseq % VACCINE_TYPES.length]} ${note}`,
-    animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
-    nextDate: null,
-    clientContacts: fakeContacts(vseq + 100),
     createdBy: creator.userId,
-    createdAt: mskDate(YEAR, month, day, 12, 0),
+    date,
+    city,
+    address: ADDRESSES[vseq % ADDRESSES.length],
+    animal: VACCINE_ANIMALS[vseq % VACCINE_ANIMALS.length],
+    problem: `[граница месяца] ${note}`,
+    priceNote: '',
+    clientContacts: fakeContactsWithApartment(vseq + 100),
+    vaccineType: VACCINE_TYPES[vseq % VACCINE_TYPES.length],
+    nextDate: null,
+    status: 'closed',
+    assignedDoctorId: doctor.userId,
+    checkAmount: (900 + (vseq % 10) * 150) * 100,
+    createdAt,
+    takenAt,
+    approvedAt,
+    closedAt,
+    cancelledAt: null,
   });
 
   vseq++;
@@ -352,9 +435,13 @@ for (const [month, day, note] of VACCINATION_BOUNDARY_CASES) {
 
 const insertVaccination = db.prepare(`
   INSERT INTO vaccinations
-    (city, vaccination_date, vaccine_type, animal, next_date, client_contacts, created_by, created_at)
+    (created_by, date, city, address, animal, problem, price_note, client_contacts, vaccine_type,
+     next_date, status, assigned_doctor_id, check_amount, created_at, taken_at, approved_at,
+     closed_at, cancelled_at)
   VALUES
-    (@city, @vaccinationDate, @vaccineType, @animal, @nextDate, @clientContacts, @createdBy, @createdAt)
+    (@createdBy, @date, @city, @address, @animal, @problem, @priceNote, @clientContacts,
+     @vaccineType, @nextDate, @status, @assignedDoctorId, @checkAmount, @createdAt, @takenAt,
+     @approvedAt, @closedAt, @cancelledAt)
 `);
 
 const insertAllVaccinations = db.transaction((toInsert: SeedVaccinationRow[]) => {
