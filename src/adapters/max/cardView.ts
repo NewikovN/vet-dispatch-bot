@@ -4,19 +4,43 @@ import { formatMoney } from '../../domain/money.js';
 
 type InlineKeyboard = ReturnType<typeof Keyboard.inlineKeyboard>;
 
-/** Рабочий чат врачей: карточка ВСЕГДА нейтральная — без имени принявшего и без суммы чека */
-export function renderCardText(card: RequestCard): string {
+/**
+ * Общая шапка для всех трёх текстовых рендеров ниже: заголовок + дата/город/адрес/животное
+ * [+ вакцина/следующая дата, ТОЛЬКО если card.vaccineType задан] + проблема [+ оговорено].
+ *
+ * card.vaccineType задаётся ТОЛЬКО у карточки вакцинации (vaccinationService.ts) — заявке эти
+ * поля не задаются (см. RequestCard в ports/Messenger.ts), поэтому наличие vaccineType и есть
+ * признак «это вакцинация», по нему же меняется заголовок (💉 вместо 📋) — иначе карточка
+ * вакцинации в чате визуально неотличима от обычной выездной заявки.
+ */
+function renderHeaderLines(card: RequestCard): string[] {
+  const isVaccination = card.vaccineType != null;
+
   const lines = [
-    `📋 Заявка №${card.requestId}`,
+    isVaccination ? `💉 Вакцинация №${card.requestId}` : `📋 Заявка №${card.requestId}`,
     ``,
     `Дата: ${card.date}`,
     `Город: ${card.city}`,
     `Адрес: ${card.address}`,
     `Животное: ${card.animal}`,
-    `Проблема: ${card.problem}`,
   ];
 
+  if (isVaccination) {
+    lines.push(`Вакцина: ${card.vaccineType}`);
+    if (card.nextDate) lines.push(`Следующая вакцинация: ${card.nextDate}`);
+  }
+
+  // У вакцинации это поле подписано «Особенности приёма» на шаге черновика (vaccineDraft.ts),
+  // не «проблема» — надпись на карточке следует за смыслом.
+  lines.push(`${isVaccination ? 'Особенности' : 'Проблема'}: ${card.problem}`);
   if (card.priceNote) lines.push(`Оговорено: ${card.priceNote}`);
+
+  return lines;
+}
+
+/** Рабочий чат врачей: карточка ВСЕГДА нейтральная — без имени принявшего и без суммы чека */
+export function renderCardText(card: RequestCard): string {
+  const lines = renderHeaderLines(card);
   lines.push('');
 
   switch (card.status) {
@@ -40,17 +64,7 @@ export function renderCardText(card: RequestCard): string {
 
 /** Управленческий чат: карточка с деталями — кто принял, сумма чека */
 export function renderManageCardText(card: RequestCard): string {
-  const lines = [
-    `📋 Заявка №${card.requestId}`,
-    ``,
-    `Дата: ${card.date}`,
-    `Город: ${card.city}`,
-    `Адрес: ${card.address}`,
-    `Животное: ${card.animal}`,
-    `Проблема: ${card.problem}`,
-  ];
-
-  if (card.priceNote) lines.push(`Оговорено: ${card.priceNote}`);
+  const lines = renderHeaderLines(card);
   lines.push('');
 
   switch (card.status) {
@@ -81,19 +95,10 @@ export function renderManageCardText(card: RequestCard): string {
  * теперь врач сразу видит дату/город/животное/проблему/оговорённую цену, не листая рабочий чат.
  */
 export function renderDoctorCardText(card: RequestCard & { clientContacts: string }): string {
-  const lines = [
-    `📋 Заявка №${card.requestId}`,
-    ``,
-    `Дата: ${card.date}`,
-    `Город: ${card.city}`,
-    `Адрес: ${card.address}`,
-    `Животное: ${card.animal}`,
-    `Проблема: ${card.problem}`,
-  ];
-
-  if (card.priceNote) lines.push(`Оговорено: ${card.priceNote}`);
+  const isVaccination = card.vaccineType != null;
+  const lines = renderHeaderLines(card);
   lines.push('');
-  lines.push('✅ Заявка одобрена, вам в работу');
+  lines.push(isVaccination ? '✅ Вакцинация одобрена, вам в работу' : '✅ Заявка одобрена, вам в работу');
   lines.push('');
   lines.push(`Контакты клиента:\n${card.clientContacts}`);
 
