@@ -42,20 +42,38 @@ CREATE TABLE IF NOT EXISTS city_chats (
   manage_chat_id  TEXT
 );
 
--- Учёт вакцинаций — отдельная сущность, НЕ связана с requests. Добавляют директор/управляющий
--- вручную в личке; запись только сохраняется в БД, никуда не постится в чаты (в отличие от
--- заявок). IF NOT EXISTS — на боевой базе таблица появится при следующем запуске без сноса
--- существующих данных (db/index.ts применяет весь schema.sql при каждом старте).
+-- Вакцинация — отдельная от requests ТАБЛИЦА (жёсткое требование заказчика — не сливать), но с
+-- тем же жизненным циклом и служебными полями, что и заявка (статус, кто принял, суммa чека, id
+-- карточек в чатах, таймстампы) + два собственных: vaccine_type, next_date. Общая только МЕХАНИКА
+-- атомарных переходов статуса (db/workflowRepo.ts), не хранение. IF NOT EXISTS — на боевой базе
+-- таблица появится/обновится при следующем запуске без сноса существующих данных (db/index.ts
+-- применяет весь schema.sql при каждом старте) — ЗА ИСКЛЮЧЕНИЕМ переноса уже существующей старой
+-- таблицы (city/vaccination_date/vaccine_type/animal/next_date/client_contacts/created_by/
+-- created_at, без жизненного цикла) на эту структуру: такой перенос из-за переименования колонки
+-- и нового CHECK-constraint требует пересборки таблицы — см. scripts/migrate-vaccinations-workflow.ts.
 CREATE TABLE IF NOT EXISTS vaccinations (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  city              TEXT NOT NULL,
-  vaccination_date  TEXT NOT NULL,
-  vaccine_type      TEXT NOT NULL,
-  animal            TEXT NOT NULL,
-  next_date         TEXT,
-  client_contacts   TEXT NOT NULL,
-  created_by        TEXT NOT NULL REFERENCES users(user_id),
-  created_at        TEXT NOT NULL
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_by         TEXT NOT NULL REFERENCES users(user_id),
+  date               TEXT NOT NULL,
+  city               TEXT NOT NULL,
+  address            TEXT NOT NULL DEFAULT '',
+  animal             TEXT NOT NULL,
+  problem            TEXT NOT NULL,
+  price_note         TEXT NOT NULL DEFAULT '',
+  client_contacts    TEXT NOT NULL,
+  vaccine_type       TEXT NOT NULL,
+  next_date          TEXT,
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'taken', 'approved', 'closed', 'cancelled')),
+  assigned_doctor_id TEXT REFERENCES users(user_id),
+  check_amount       INTEGER,
+  group_message_id   TEXT,
+  manage_message_id  TEXT,
+  created_at         TEXT NOT NULL,
+  taken_at           TEXT,
+  approved_at        TEXT,
+  closed_at          TEXT,
+  cancelled_at       TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_vaccinations_city_date ON vaccinations(city, vaccination_date);
+CREATE INDEX IF NOT EXISTS idx_vaccinations_status ON vaccinations(status);
+CREATE INDEX IF NOT EXISTS idx_vaccinations_city_date ON vaccinations(city, date);

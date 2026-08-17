@@ -1,5 +1,17 @@
 import { db } from './index.js';
 import type { Request, RequestStatus } from '../domain/models.js';
+import {
+  claim,
+  approve,
+  reject,
+  cancel,
+  close,
+  type ClaimResult,
+  type ApproveResult,
+  type RejectResult,
+  type CancelResult,
+  type CloseResult,
+} from './workflowRepo.js';
 
 export interface NewRequest {
   createdBy: string;
@@ -54,79 +66,35 @@ function toRequest(row: any): Request {
     manageMessageId: row.manage_message_id,
     createdAt: row.created_at,
     takenAt: row.taken_at,
+    approvedAt: row.approved_at,
     closedAt: row.closed_at,
     cancelledAt: row.cancelled_at,
   };
 }
 
-export type ClaimResult = 'ok' | 'already_taken' | 'not_found';
+// Атомарные переходы статуса — общая механика с vaccinations, см. workflowRepo.ts. Здесь только
+// тонкие обёртки с предметными именами (claimRequest, а не голый claim('requests', ...) наружу).
+export type { ClaimResult, ApproveResult, RejectResult, CancelResult, CloseResult };
 
 export function claimRequest(id: number, doctorId: string): ClaimResult {
-  const info = db.prepare(`
-    UPDATE requests
-    SET status = 'taken', assigned_doctor_id = ?, taken_at = ?
-    WHERE id = ? AND status = 'open'
-  `).run(doctorId, new Date().toISOString(), id);
-
-  if (info.changes === 1) return 'ok';
-  return getRequest(id) ? 'already_taken' : 'not_found';
+  return claim('requests', id, doctorId);
 }
-
-export type CloseResult = 'ok' | 'not_approved' | 'wrong_doctor' | 'not_found';
-
-export function closeRequest(id: number, doctorId: string, checkAmount: number): CloseResult {
-  const info = db.prepare(`
-    UPDATE requests
-    SET status = 'closed', check_amount = ?, closed_at = ?
-    WHERE id = ? AND status = 'approved' AND assigned_doctor_id = ?
-  `).run(checkAmount, new Date().toISOString(), id, doctorId);
-
-  if (info.changes === 1) return 'ok';
-
-  const req = getRequest(id);
-  if (!req) return 'not_found';
-  if (req.assignedDoctorId !== doctorId) return 'wrong_doctor';
-  return 'not_approved';
-}
-
-export type ApproveResult = 'ok' | 'not_taken' | 'not_found';
 
 export function approveRequest(id: number): ApproveResult {
-  const info = db.prepare(`
-    UPDATE requests
-    SET status = 'approved', approved_at = ?
-    WHERE id = ? AND status = 'taken'
-  `).run(new Date().toISOString(), id);
-
-  if (info.changes === 1) return 'ok';
-  return getRequest(id) ? 'not_taken' : 'not_found';
+  return approve('requests', id);
 }
-
-export type RejectResult = 'ok' | 'not_taken' | 'not_found';
 
 export function rejectRequest(id: number): RejectResult {
-  const info = db.prepare(`
-    UPDATE requests
-    SET status = 'open', assigned_doctor_id = NULL, taken_at = NULL
-    WHERE id = ? AND status = 'taken'
-  `).run(id);
-
-  if (info.changes === 1) return 'ok';
-  return getRequest(id) ? 'not_taken' : 'not_found';
+  return reject('requests', id);
 }
-
-export type CancelResult = 'ok' | 'not_open' | 'not_found';
 
 /** Отменить можно только ОТКРЫТУЮ (ещё не принятую врачом) заявку — статус 'open' → 'cancelled'. */
 export function cancelRequest(id: number): CancelResult {
-  const info = db.prepare(`
-    UPDATE requests
-    SET status = 'cancelled', cancelled_at = ?
-    WHERE id = ? AND status = 'open'
-  `).run(new Date().toISOString(), id);
+  return cancel('requests', id);
+}
 
-  if (info.changes === 1) return 'ok';
-  return getRequest(id) ? 'not_open' : 'not_found';
+export function closeRequest(id: number, doctorId: string, checkAmount: number): CloseResult {
+  return close('requests', id, doctorId, checkAmount);
 }
 
 export interface ExportFilter {
