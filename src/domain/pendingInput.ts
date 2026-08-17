@@ -13,6 +13,27 @@ export function clearAwait(userId: string): void {
   waitingForAmount.delete(userId);
 }
 
+/**
+ * То же самое, но для вакцинации — ОТДЕЛЬНАЯ карта, не переиспользует waitingForAmount выше.
+ * Если бы врач одновременно закрывал заявку №5 и вакцинацию №5, общая карта userId → id не
+ * смогла бы различить, какую сущность он закрывает, когда придёт сумма. handlers.ts пока эти
+ * функции не вызывает (следующий подшаг) — существующий поток заявок (askAmount/
+ * getAwaitedRequest/clearAwait) этой правкой не тронут.
+ */
+const waitingForVaccinationAmount = new Map<string, number>();
+
+export function askVaccinationAmount(userId: string, vaccinationId: number): void {
+  waitingForVaccinationAmount.set(userId, vaccinationId);
+}
+
+export function getAwaitedVaccination(userId: string): number | undefined {
+  return waitingForVaccinationAmount.get(userId);
+}
+
+export function clearVaccinationAwait(userId: string): void {
+  waitingForVaccinationAmount.delete(userId);
+}
+
 /** '1500' → 150000 копеек. Вернёт null, если это не сумма. */
 export function parseMoney(text: string): number | null {
   const cleaned = text.trim().replace(/\s/g, '').replace(',', '.');

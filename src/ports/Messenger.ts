@@ -10,6 +10,9 @@ export interface RequestCard {
   status: 'open' | 'taken' | 'approved' | 'closed' | 'cancelled';
   doctorName?: string;
   checkAmount?: number;
+  /** Только у карточки вакцинации (vaccinationService.ts) — заявке не задаются. */
+  vaccineType?: string;
+  nextDate?: string | null;
 }
 
 export interface Messenger {
