@@ -9,6 +9,16 @@
  * Идемпотентна: проверяет PRAGMA table_info(requests) перед ALTER TABLE — повторный
  * запуск (например, по ошибке дважды) ничего не ломает и не падает.
  *
+ * Перед ALTER TABLE делает резервную копию файла БД
+ * (`<dbPath>.before-address-migration-<ISO-метка времени>.bak`) через db.backup() (SQLite
+ * Online Backup API) — НЕ голый fs.copyFileSync: база в режиме WAL (schema.sql), часть свежих
+ * изменений может лежать в .db-wal и не попасть в простую копию основного файла; db.backup()
+ * снимает консистентный снапшот независимо от WAL. Метка времени в имени — db.backup() молча
+ * перезаписывает файл назначения, если он уже существует (проверено), поэтому фиксированное имя
+ * стирало бы бэкап от предыдущей попытки миграции. Это ДОПОЛНИТЕЛЬНАЯ подстраховка поверх
+ * штатных cron-бэкапов (см. PROGRESS.md), та же техника, что в migrate-add-cancelled-status.ts.
+ * Если сам бэкап не удался — миграция прерывается, к ALTER TABLE не переходим.
+ *
  * НЕ выполняется этим агентом на проде — только готовится. Запуск на сервере вручную,
  * ДО `pnpm build && systemctl restart vet-bot`, из корня проекта:
  *
@@ -38,6 +48,17 @@ const hasAddress = columns.some((c) => c.name === 'address');
 if (hasAddress) {
   console.log('Столбец address уже есть в requests — миграция не нужна, ничего не делаю.');
 } else {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `${dbPath}.before-address-migration-${timestamp}.bak`;
+  console.log('Резервная копия перед ALTER TABLE:', backupPath);
+  try {
+    await db.backup(backupPath);
+  } catch (err) {
+    console.error('ОШИБКА: не удалось сделать резервную копию — миграция прервана, таблицу requests не трогал.', err);
+    process.exit(1);
+  }
+  console.log('Резервная копия готова.');
+
   db.exec(`ALTER TABLE requests ADD COLUMN address TEXT NOT NULL DEFAULT ''`);
   console.log('Готово: столбец requests.address добавлен (существующие строки получили address = \'\').');
 }
