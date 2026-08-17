@@ -7,7 +7,7 @@ export interface RequestCard {
   animal: string;
   problem: string;
   priceNote: string;
-  status: 'open' | 'taken' | 'approved' | 'closed';
+  status: 'open' | 'taken' | 'approved' | 'closed' | 'cancelled';
   doctorName?: string;
   checkAmount?: number;
 }

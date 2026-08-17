@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<string, string> = {
   taken: 'В работе (не одобрено)',
   approved: 'В работе (одобрено)',
   closed: 'Закрыта',
+  cancelled: 'Отменена',
 };
 
 /**

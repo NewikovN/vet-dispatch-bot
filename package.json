@@ -12,7 +12,8 @@
     "webhook:delete": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx scripts/webhook.ts delete",
     "webhook:list": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx scripts/webhook.ts list",
     "seed": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx scripts/seed.ts",
-    "migrate:add-address": "tsx scripts/migrate-add-address-column.ts"
+    "migrate:add-address": "tsx scripts/migrate-add-address-column.ts",
+    "migrate:add-cancelled-status": "tsx scripts/migrate-add-cancelled-status.ts"
   },
   "license": "ISC",
   "dependencies": {

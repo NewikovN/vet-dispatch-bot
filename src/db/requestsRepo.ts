@@ -55,6 +55,7 @@ function toRequest(row: any): Request {
     createdAt: row.created_at,
     takenAt: row.taken_at,
     closedAt: row.closed_at,
+    cancelledAt: row.cancelled_at,
   };
 }
 
@@ -112,6 +113,20 @@ export function rejectRequest(id: number): RejectResult {
 
   if (info.changes === 1) return 'ok';
   return getRequest(id) ? 'not_taken' : 'not_found';
+}
+
+export type CancelResult = 'ok' | 'not_open' | 'not_found';
+
+/** Отменить можно только ОТКРЫТУЮ (ещё не принятую врачом) заявку — статус 'open' → 'cancelled'. */
+export function cancelRequest(id: number): CancelResult {
+  const info = db.prepare(`
+    UPDATE requests
+    SET status = 'cancelled', cancelled_at = ?
+    WHERE id = ? AND status = 'open'
+  `).run(new Date().toISOString(), id);
+
+  if (info.changes === 1) return 'ok';
+  return getRequest(id) ? 'not_open' : 'not_found';
 }
 
 export interface ExportFilter {

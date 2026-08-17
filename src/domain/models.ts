@@ -1,6 +1,6 @@
 export type Role = 'dispatcher' | 'doctor' | 'manager' | 'director';
 export type UserStatus = 'active' | 'removed';
-export type RequestStatus = 'open' | 'taken' | 'approved' | 'closed';
+export type RequestStatus = 'open' | 'taken' | 'approved' | 'closed' | 'cancelled';
 
 export interface User {
   userId: string;
@@ -30,6 +30,7 @@ export interface Request {
   createdAt: string;
   takenAt: string | null;
   closedAt: string | null;
+  cancelledAt: string | null;
 }
 
 export function canCreateRequest(role: Role | null): boolean {
@@ -53,6 +54,11 @@ export function canReject(role: Role | null): boolean {
 }
 
 export function canSeeDetails(role: Role | null): boolean {
+  return role === 'director' || role === 'manager' || role === 'dispatcher';
+}
+
+/** Отменить можно только ОТКРЫТУЮ (ещё не принятую врачом) заявку — та же роль, что и создаёт. */
+export function canCancel(role: Role | null): boolean {
   return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
 

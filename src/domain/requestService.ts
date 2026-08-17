@@ -1,6 +1,6 @@
 import type { Messenger, RequestCard } from '../ports/Messenger.js';
 import type { Request } from './models.js';
-import { canTakeRequest, canApprove, canReject } from './models.js';
+import { canTakeRequest, canApprove, canReject, canCancel } from './models.js';
 import {
   createRequest,
   getRequest,
@@ -8,6 +8,7 @@ import {
   closeRequest,
   approveRequest,
   rejectRequest,
+  cancelRequest,
   setGroupMessageId,
   setManageMessageId,
   type NewRequest,
@@ -47,14 +48,18 @@ function toManageCard(req: Request, doctorName?: string): RequestCard {
   };
 }
 
-/** Диспетчер создал заявку → публикуем нейтральную карточку в рабочий чат города */
+/**
+ * Диспетчер создал заявку → публикуем СРАЗУ в оба чата города: нейтральную карточку в рабочий
+ * (кнопка «Принять») и карточку с деталями в управленческий (кнопка «Отменить», пока заявка
+ * открыта — до этой правки управленческая карточка появлялась только после takeRequest).
+ */
 export async function publishRequest(
   messenger: Messenger,
   data: NewRequest,
 ): Promise<{ ok: boolean; error?: string }> {
   const chats = getCityChats(data.city);
-  if (!chats?.workChatId) {
-    return { ok: false, error: `Рабочий чат города «${data.city}» не настроен. Обратитесь к директору.` };
+  if (!chats?.workChatId || !chats?.manageChatId) {
+    return { ok: false, error: `Оба чата города «${data.city}» должны быть настроены. Обратитесь к директору.` };
   }
 
   const id = createRequest(data);
@@ -62,6 +67,9 @@ export async function publishRequest(
 
   const workMsgId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(req));
   setGroupMessageId(id, workMsgId);
+
+  const manageMsgId = await messenger.sendManageCard(chats.manageChatId, toManageCard(req));
+  setManageMessageId(id, manageMsgId);
 
   return { ok: true };
 }
@@ -104,11 +112,11 @@ export async function takeRequest(
     await messenger.editGroupCard(chatId, req.groupMessageId, toGroupCard(req));
   }
 
-  // Управленческая карточка — с деталями, для решения об одобрении
+  // Управленческая карточка уже существует с момента публикации (см. publishRequest) —
+  // перерисовываем её с деталями (кто принял), кнопка «Отменить» сменится на «Одобрить»/«Отклонить»
   const chats = getCityChats(req.city);
-  if (chats?.manageChatId) {
-    const manageMsgId = await messenger.sendManageCard(chats.manageChatId, toManageCard(req, doctor!.displayName));
-    setManageMessageId(req.id, manageMsgId);
+  if (chats?.manageChatId && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req, doctor!.displayName));
   }
 
   await messenger.answerCallback(eventId, 'Заявка принята, ждите одобрения управляющего');
@@ -197,6 +205,47 @@ export async function rejectTake(
   }
 
   await messenger.answerCallback(eventId, 'Заявка отклонена и снова открыта');
+}
+
+/** Диспетчер/управляющий/директор отменил ОТКРЫТУЮ (ещё не принятую врачом) заявку */
+export async function cancelOpenRequest(
+  messenger: Messenger,
+  requestId: number,
+  actorId: string,
+  eventId: string,
+): Promise<void> {
+  const actor = getUser(actorId);
+
+  if (!canCancel(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Отменять заявки может диспетчер, управляющий или директор');
+    return;
+  }
+
+  const result = cancelRequest(requestId);
+
+  if (result === 'not_open') {
+    await messenger.answerCallback(eventId, 'Отменить можно только открытую (ещё не принятую) заявку');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Заявка не найдена');
+    return;
+  }
+
+  const req = getRequest(requestId)!;
+  const chats = getCityChats(req.city);
+
+  // Рабочая карточка — «Отменена», кнопка «Принять» пропадает
+  if (chats?.workChatId && req.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
+  }
+
+  // Управленческая карточка — тоже «Отменена», без кнопок
+  if (chats?.manageChatId && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
+  }
+
+  await messenger.answerCallback(eventId, 'Заявка отменена');
 }
 
 /** Врач нажал «Закрыть» → спрашиваем сумму. Доступно только после одобрения. */

@@ -16,7 +16,7 @@ import {
   renderReportMenuKeyboard,
 } from './adapters/max/cardView.js';
 
-import { publishRequest, takeRequest, approveTake, rejectTake, startClosing, finishClosing } from './domain/requestService.js';
+import { publishRequest, takeRequest, approveTake, rejectTake, cancelOpenRequest, startClosing, finishClosing } from './domain/requestService.js';
 import { canCreateRequest, canManageRoles, canManageVaccinations, type Role } from './domain/models.js';
 import {
   getAwaitedRequest,
@@ -647,6 +647,9 @@ bot.on('message_callback', async (ctx) => {
       break;
     case 'reject':
       await rejectTake(messenger, requestId, userId, eventId);
+      break;
+    case 'cancel':
+      await cancelOpenRequest(messenger, requestId, userId, eventId);
       break;
     case 'close':
       await startClosing(messenger, requestId, userId, eventId);

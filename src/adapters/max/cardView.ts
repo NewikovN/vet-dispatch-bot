@@ -30,6 +30,9 @@ export function renderCardText(card: RequestCard): string {
     case 'closed':
       lines.push('✅ Закрыта');
       break;
+    case 'cancelled':
+      lines.push('🚫 Отменена');
+      break;
   }
 
   return lines.join('\n');
@@ -63,6 +66,9 @@ export function renderManageCardText(card: RequestCard): string {
     case 'closed':
       lines.push(`✅ Закрыл: ${card.doctorName ?? '—'}`);
       if (card.checkAmount != null) lines.push(`Чек: ${formatMoney(card.checkAmount)}`);
+      break;
+    case 'cancelled':
+      lines.push('🚫 Отменена');
       break;
   }
 
@@ -103,16 +109,27 @@ export function renderWorkKeyboard(card: RequestCard): InlineKeyboard | undefine
   ]);
 }
 
-/** Клавиатура управленческого чата: «Одобрить»/«Отклонить», пока заявка ждёт решения */
+/**
+ * Клавиатура управленческого чата: пока заявка ОТКРЫТА (никто не принял) — «Отменить»; пока
+ * ждёт решения (кто-то принял) — «Одобрить»/«Отклонить»; иначе (закрыта/отменена) — без кнопок.
+ */
 export function renderManageKeyboard(card: RequestCard): InlineKeyboard | undefined {
-  if (card.status !== 'taken') return undefined;
+  if (card.status === 'open') {
+    return Keyboard.inlineKeyboard([
+      [Keyboard.button.callback('Отменить', `cancel:${card.requestId}`, { intent: 'negative' })],
+    ]);
+  }
 
-  return Keyboard.inlineKeyboard([
-    [
-      Keyboard.button.callback('Одобрить', `approve:${card.requestId}`, { intent: 'positive' }),
-      Keyboard.button.callback('Отклонить', `reject:${card.requestId}`, { intent: 'negative' }),
-    ],
-  ]);
+  if (card.status === 'taken') {
+    return Keyboard.inlineKeyboard([
+      [
+        Keyboard.button.callback('Одобрить', `approve:${card.requestId}`, { intent: 'positive' }),
+        Keyboard.button.callback('Отклонить', `reject:${card.requestId}`, { intent: 'negative' }),
+      ],
+    ]);
+  }
+
+  return undefined;
 }
 
 /** Клавиатура в личке врача: «Закрыть заявку» после одобрения */

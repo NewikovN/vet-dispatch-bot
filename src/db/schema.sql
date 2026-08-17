@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS requests (
   problem            TEXT NOT NULL,
   price_note         TEXT NOT NULL DEFAULT '',
   client_contacts    TEXT NOT NULL,
-  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'taken', 'approved', 'closed')),
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'taken', 'approved', 'closed', 'cancelled')),
   assigned_doctor_id TEXT REFERENCES users(user_id),
   check_amount       INTEGER,
   group_message_id   TEXT,
@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS requests (
   created_at         TEXT NOT NULL,
   taken_at           TEXT,
   approved_at        TEXT,
-  closed_at          TEXT
+  closed_at          TEXT,
+  cancelled_at       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
