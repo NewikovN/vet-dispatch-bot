@@ -29,6 +29,15 @@ export interface Messenger {
   /** Перерисовать карточку в беседе (убрать кнопку, показать врача). */
   editGroupCard(chatId: string, messageId: string, card: RequestCard): Promise<void>;
 
+  /**
+   * Форс-мажор «вернуть в работу»: старую карточку в рабочем чате нельзя молча вернуть в статус
+   * open через editGroupCard — если чат уже наспамили другими сообщениями, актуальную кнопку
+   * «Принять» никто не заметит. Вместо этого старое сообщение помечается простым текстом БЕЗ
+   * клавиатуры (чтобы не было двух активных карточек одной заявки с кнопкой «Принять»
+   * одновременно), а новая карточка с кнопкой отправляется заново через sendGroupCard.
+   */
+  markGroupCardMoved(chatId: string, messageId: string, text: string): Promise<void>;
+
   /** Отправить карточку заявки в управленческий чат (с деталями: врач, сумма). Возвращает id сообщения. */
   sendManageCard(chatId: string, card: RequestCard): Promise<string>;
 

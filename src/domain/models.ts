@@ -108,3 +108,12 @@ export function canCancel(role: Role | null): boolean {
 export function canManageVaccinations(role: Role | null): boolean {
   return role === 'director' || role === 'manager';
 }
+
+/**
+ * Форс-мажор «вернуть в работу» — уточнение заказчика: НЕ переиспользовать canApprove.
+ * Изначально это действие было доступно тем же ролям, что одобряют/отклоняют приём
+ * (dispatcher/manager/director) — заказчик, увидев готовую фичу, сузил её до директора.
+ */
+export function canReturnToWork(role: Role | null): boolean {
+  return role === 'director';
+}

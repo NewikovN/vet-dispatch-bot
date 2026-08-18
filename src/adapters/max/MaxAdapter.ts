@@ -36,6 +36,11 @@ export class MaxAdapter implements Messenger {
     });
   }
 
+  /** См. комментарий у markGroupCardMoved в ports/Messenger.ts — просто текст, без клавиатуры. */
+  async markGroupCardMoved(_chatId: string, messageId: string, text: string): Promise<void> {
+    await this.api.editMessage(messageId, { text, attachments: [] });
+  }
+
   async sendManageCard(chatId: string, card: RequestCard): Promise<string> {
     const kb = renderManageKeyboard(card);
     const message = await this.api.sendMessageToChat(Number(chatId), renderManageCardText(card), {

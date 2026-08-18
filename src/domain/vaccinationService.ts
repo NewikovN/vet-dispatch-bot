@@ -18,7 +18,7 @@
  */
 import type { Messenger, RequestCard } from '../ports/Messenger.js';
 import type { Vaccination } from './models.js';
-import { canTakeRequest, canApprove, canReject, canCancel } from './models.js';
+import { canTakeRequest, canApprove, canReject, canCancel, canReturnToWork } from './models.js';
 import {
   createVaccination,
   getVaccination,
@@ -282,10 +282,19 @@ export async function cancelOpenVaccination(
 }
 
 /**
- * Форс-мажор: диспетчер/управляющий/директор вернул ОДОБРЕННУЮ запись в работу (например, врач
- * не может приехать) — статус 'approved' → 'open', снятие врача. Права — те же, что у одобрения
- * (canApprove). Снятого врача уведомляем личным сообщением — карточка/контакты у него уже есть
- * и никуда не денутся (необратимо, заказчик в курсе и это принимает).
+ * Форс-мажор: ДИРЕКТОР вернул ОДОБРЕННУЮ запись в работу (например, врач не может приехать) —
+ * статус 'approved' → 'open', снятие врача. Права — уточнение заказчика после того, как увидел
+ * готовую фичу: НЕ canApprove (изначально было доступно диспетчеру/управляющему/директору), а
+ * отдельная canReturnToWork — только директор. Снятого врача уведомляем личным сообщением —
+ * карточка/контакты у него уже есть и никуда не денутся (необратимо, заказчик в курсе и это
+ * принимает).
+ *
+ * Рабочая карточка: НЕ просто editGroupCard на месте — если чат наспамили другими сообщениями,
+ * актуальную кнопку «Принять» никто не заметит. Старое сообщение помечается текстом без кнопки
+ * (markGroupCardMoved), новая карточка с кнопкой отправляется заново внизу чата (sendGroupCard),
+ * group_message_id в БД переключается на новый id — дальнейшие действия (принять/закрыть и т.д.)
+ * бьют уже по новому сообщению. Управленческую карточку это не касается — просто editManageCard,
+ * там и так внимательно следят за чатом.
  */
 export async function returnVaccinationToWork(
   messenger: Messenger,
@@ -295,8 +304,8 @@ export async function returnVaccinationToWork(
 ): Promise<void> {
   const actor = getUser(actorId);
 
-  if (!canApprove(actor?.role ?? null)) {
-    await messenger.answerCallback(eventId, 'Возвращать запись в работу может только диспетчер, управляющий или директор');
+  if (!canReturnToWork(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Возвращать запись в работу может только директор');
     return;
   }
 
@@ -318,9 +327,16 @@ export async function returnVaccinationToWork(
   const vac = getVaccination(vaccinationId)!;
   const chats = getCityChats(vac.city);
 
-  // Рабочая карточка снова открыта — кнопка «Принять» доступна любому врачу
+  // Старая рабочая карточка — «переехала», без кнопки; новая — заново внизу чата, с кнопкой
+  // «Принять» на виду. group_message_id переключаем на новое сообщение.
   if (chats?.workChatId && vac.groupMessageId) {
-    await messenger.editGroupCard(chats.workChatId, vac.groupMessageId, toGroupCard(vac));
+    await messenger.markGroupCardMoved(
+      chats.workChatId,
+      vac.groupMessageId,
+      `Запись №${vaccinationId} перемещена — см. новое сообщение ниже.`,
+    );
+    const newGroupMessageId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(vac));
+    setGroupMessageId(vaccinationId, newGroupMessageId);
   }
 
   // Управленческая карточка тоже возвращается в нейтральное состояние (без принявшего врача)
