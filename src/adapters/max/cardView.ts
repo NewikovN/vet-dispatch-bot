@@ -146,7 +146,7 @@ export function renderManageKeyboard(card: RequestCard): InlineKeyboard | undefi
 
   if (card.status === 'approved') {
     return Keyboard.inlineKeyboard([
-      [Keyboard.button.callback('Вернуть в работу', `return:${card.requestId}`, { intent: 'negative' })],
+      [Keyboard.button.callback('Вернуть в бот', `return:${card.requestId}`, { intent: 'negative' })],
     ]);
   }
 
