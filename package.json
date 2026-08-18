@@ -14,7 +14,8 @@
     "seed": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx scripts/seed.ts",
     "migrate:add-address": "tsx scripts/migrate-add-address-column.ts",
     "migrate:add-cancelled-status": "tsx scripts/migrate-add-cancelled-status.ts",
-    "migrate:vaccinations-workflow": "tsx scripts/migrate-vaccinations-workflow.ts"
+    "migrate:vaccinations-workflow": "tsx scripts/migrate-vaccinations-workflow.ts",
+    "refresh-approved-cards": "NODE_EXTRA_CA_CERTS=./certs/russian_trusted_root.pem tsx scripts/refresh-approved-cards.ts"
   },
   "license": "ISC",
   "dependencies": {

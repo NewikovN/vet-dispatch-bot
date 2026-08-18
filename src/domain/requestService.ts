@@ -36,8 +36,11 @@ function toGroupCard(req: Request): RequestCard {
 /**
  * Управленческий чат: карточка с деталями — кто принял, сумма чека, и (решение заказчика)
  * контакты клиента ВСЕГДА, на любом статусе — не только после одобрения.
+ *
+ * Экспортирована (не только для внутреннего использования в этом файле) — нужна
+ * scripts/refresh-approved-cards.ts, чтобы пересобрать карточку без дублирования логики.
  */
-function toManageCard(req: Request, doctorName?: string): RequestCard {
+export function toManageCard(req: Request, doctorName?: string): RequestCard {
   return {
     requestId: req.id,
     date: req.date,
