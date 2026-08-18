@@ -9,6 +9,7 @@ import {
   approveRequest,
   rejectRequest,
   cancelRequest,
+  returnRequestToWork as returnRequestToWorkDb,
   setGroupMessageId,
   setManageMessageId,
   type NewRequest,
@@ -253,6 +254,60 @@ export async function cancelOpenRequest(
   }
 
   await messenger.answerCallback(eventId, 'Заявка отменена');
+}
+
+/**
+ * Форс-мажор: диспетчер/управляющий/директор вернул ОДОБРЕННУЮ заявку в работу (например, врач
+ * не может приехать) — статус 'approved' → 'open', снятие врача. Права — те же, что у одобрения
+ * (canApprove). Снятого врача уведомляем личным сообщением — карточка/контакты у него уже есть
+ * и никуда не денутся (необратимо, заказчик в курсе и это принимает).
+ */
+export async function returnRequestToWork(
+  messenger: Messenger,
+  requestId: number,
+  actorId: string,
+  eventId: string,
+): Promise<void> {
+  const actor = getUser(actorId);
+
+  if (!canApprove(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Возвращать заявку в работу может только диспетчер, управляющий или директор');
+    return;
+  }
+
+  // Читаем ДО перехода — assigned_doctor_id обнулится, а снятого врача ещё нужно уведомить.
+  const before = getRequest(requestId);
+  const previousDoctor = before?.assignedDoctorId ? getUser(before.assignedDoctorId) : null;
+
+  const result = returnRequestToWorkDb(requestId);
+
+  if (result === 'not_approved') {
+    await messenger.answerCallback(eventId, 'Вернуть в работу можно только одобренную заявку');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Заявка не найдена');
+    return;
+  }
+
+  const req = getRequest(requestId)!;
+  const chats = getCityChats(req.city);
+
+  // Рабочая карточка снова открыта — кнопка «Принять» доступна любому врачу
+  if (chats?.workChatId && req.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
+  }
+
+  // Управленческая карточка тоже возвращается в нейтральное состояние (без принявшего врача)
+  if (chats?.manageChatId && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
+  }
+
+  if (previousDoctor?.dmChatId) {
+    await messenger.sendPrivate(previousDoctor.dmChatId, `Заявка №${requestId} снята с вас и возвращена в работу.`);
+  }
+
+  await messenger.answerCallback(eventId, 'Заявка возвращена в работу');
 }
 
 /** Врач нажал «Закрыть» → спрашиваем сумму. Доступно только после одобрения. */

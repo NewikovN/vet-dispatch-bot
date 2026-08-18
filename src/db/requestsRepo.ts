@@ -6,11 +6,13 @@ import {
   reject,
   cancel,
   close,
+  returnToWork,
   type ClaimResult,
   type ApproveResult,
   type RejectResult,
   type CancelResult,
   type CloseResult,
+  type ReturnToWorkResult,
 } from './workflowRepo.js';
 
 export interface NewRequest {
@@ -87,7 +89,7 @@ function toRequest(row: any): Request {
 
 // Атомарные переходы статуса — общая механика с vaccinations, см. workflowRepo.ts. Здесь только
 // тонкие обёртки с предметными именами (claimRequest, а не голый claim('requests', ...) наружу).
-export type { ClaimResult, ApproveResult, RejectResult, CancelResult, CloseResult };
+export type { ClaimResult, ApproveResult, RejectResult, CancelResult, CloseResult, ReturnToWorkResult };
 
 export function claimRequest(id: number, doctorId: string): ClaimResult {
   return claim('requests', id, doctorId);
@@ -108,6 +110,11 @@ export function cancelRequest(id: number): CancelResult {
 
 export function closeRequest(id: number, doctorId: string, checkAmount: number): CloseResult {
   return close('requests', id, doctorId, checkAmount);
+}
+
+/** Форс-мажор: вернуть ОДОБРЕННУЮ заявку в работу — статус 'approved' → 'open', снятие врача. */
+export function returnRequestToWork(id: number): ReturnToWorkResult {
+  return returnToWork('requests', id);
 }
 
 export interface ExportFilter {

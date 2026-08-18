@@ -27,6 +27,7 @@ import {
   approveVaccination,
   rejectVaccination,
   cancelVaccination,
+  returnVaccinationToWork as returnVaccinationToWorkDb,
   setGroupMessageId,
   setManageMessageId,
   type NewVaccination,
@@ -275,6 +276,60 @@ export async function cancelOpenVaccination(
   }
 
   await messenger.answerCallback(eventId, 'Запись отменена');
+}
+
+/**
+ * Форс-мажор: диспетчер/управляющий/директор вернул ОДОБРЕННУЮ запись в работу (например, врач
+ * не может приехать) — статус 'approved' → 'open', снятие врача. Права — те же, что у одобрения
+ * (canApprove). Снятого врача уведомляем личным сообщением — карточка/контакты у него уже есть
+ * и никуда не денутся (необратимо, заказчик в курсе и это принимает).
+ */
+export async function returnVaccinationToWork(
+  messenger: Messenger,
+  vaccinationId: number,
+  actorId: string,
+  eventId: string,
+): Promise<void> {
+  const actor = getUser(actorId);
+
+  if (!canApprove(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Возвращать запись в работу может только диспетчер, управляющий или директор');
+    return;
+  }
+
+  // Читаем ДО перехода — assigned_doctor_id обнулится, а снятого врача ещё нужно уведомить.
+  const before = getVaccination(vaccinationId);
+  const previousDoctor = before?.assignedDoctorId ? getUser(before.assignedDoctorId) : null;
+
+  const result = returnVaccinationToWorkDb(vaccinationId);
+
+  if (result === 'not_approved') {
+    await messenger.answerCallback(eventId, 'Вернуть в работу можно только одобренную запись');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Запись не найдена');
+    return;
+  }
+
+  const vac = getVaccination(vaccinationId)!;
+  const chats = getCityChats(vac.city);
+
+  // Рабочая карточка снова открыта — кнопка «Принять» доступна любому врачу
+  if (chats?.workChatId && vac.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, vac.groupMessageId, toGroupCard(vac));
+  }
+
+  // Управленческая карточка тоже возвращается в нейтральное состояние (без принявшего врача)
+  if (chats?.manageChatId && vac.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, vac.manageMessageId, toManageCard(vac));
+  }
+
+  if (previousDoctor?.dmChatId) {
+    await messenger.sendPrivate(previousDoctor.dmChatId, `Запись №${vaccinationId} снята с вас и возвращена в работу.`);
+  }
+
+  await messenger.answerCallback(eventId, 'Запись возвращена в работу');
 }
 
 /** Врач нажал «Закрыть» → спрашиваем сумму. Доступно только после одобрения. */

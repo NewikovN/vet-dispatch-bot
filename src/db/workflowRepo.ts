@@ -11,9 +11,9 @@
  * интерполяция в SQL безопасна. Тип ограничивает вызовы только двумя известными таблицами.
  *
  * requestsRepo.ts/vaccinationsRepo.ts оборачивают эти функции в свои claimRequest/approveRequest/
- * rejectRequest/cancelRequest/closeRequest (и аналогично claimVaccination/...) с предметными
- * именами — наружу из бота эти функции (claim/approve/reject/cancel/close) напрямую не зовутся,
- * это внутренняя переиспользуемая деталь репозиториев.
+ * rejectRequest/cancelRequest/closeRequest/returnRequestToWork (и аналогично claimVaccination/...)
+ * с предметными именами — наружу из бота эти функции (claim/approve/reject/cancel/close/
+ * returnToWork) напрямую не зовутся, это внутренняя переиспользуемая деталь репозиториев.
  */
 import { db } from './index.js';
 
@@ -24,6 +24,7 @@ export type ApproveResult = 'ok' | 'not_taken' | 'not_found';
 export type RejectResult = 'ok' | 'not_taken' | 'not_found';
 export type CancelResult = 'ok' | 'not_open' | 'not_found';
 export type CloseResult = 'ok' | 'not_approved' | 'wrong_doctor' | 'not_found';
+export type ReturnToWorkResult = 'ok' | 'not_approved' | 'not_found';
 
 interface StatusRow {
   status: string;
@@ -99,6 +100,27 @@ export function cancel(table: WorkflowTable, id: number): CancelResult {
 
   if (info.changes === 1) return 'ok';
   return getStatusRow(table, id) ? 'not_open' : 'not_found';
+}
+
+/**
+ * Форс-мажор: одобренную запись вернуть в работу — 'approved' → 'open', снятие врача.
+ * Симметрично reject ('taken' → 'open'), только с другого предусловия и дополнительно сбрасывает
+ * approved_at. НЕ новый статус — запись просто возвращается в уже существующий 'open' и живёт
+ * по тем же правилам, что и свежесозданная (снова доступна кнопка «Принять» любому врачу).
+ */
+export function returnToWork(table: WorkflowTable, id: number): ReturnToWorkResult {
+  const info = db
+    .prepare(
+      `
+      UPDATE ${table}
+      SET status = 'open', assigned_doctor_id = NULL, taken_at = NULL, approved_at = NULL
+      WHERE id = ? AND status = 'approved'
+    `,
+    )
+    .run(id);
+
+  if (info.changes === 1) return 'ok';
+  return getStatusRow(table, id) ? 'not_approved' : 'not_found';
 }
 
 /** Закрытие: 'approved' → 'closed', только тем же врачом, что принял. */

@@ -6,11 +6,13 @@ import {
   reject,
   cancel,
   close,
+  returnToWork,
   type ClaimResult,
   type ApproveResult,
   type RejectResult,
   type CancelResult,
   type CloseResult,
+  type ReturnToWorkResult,
 } from './workflowRepo.js';
 
 /** Те же поля, что у заявки (NewRequest), плюс два собственных: vaccineType, nextDate. */
@@ -91,7 +93,7 @@ function toVaccination(row: any): Vaccination {
 
 // Атомарные переходы статуса — общая механика с requests, см. workflowRepo.ts. Тонкие обёртки с
 // предметными именами, по аналогии с requestsRepo.ts (claimRequest/approveRequest/...).
-export type { ClaimResult, ApproveResult, RejectResult, CancelResult, CloseResult };
+export type { ClaimResult, ApproveResult, RejectResult, CancelResult, CloseResult, ReturnToWorkResult };
 
 export function claimVaccination(id: number, doctorId: string): ClaimResult {
   return claim('vaccinations', id, doctorId);
@@ -112,6 +114,11 @@ export function cancelVaccination(id: number): CancelResult {
 
 export function closeVaccination(id: number, doctorId: string, checkAmount: number): CloseResult {
   return close('vaccinations', id, doctorId, checkAmount);
+}
+
+/** Форс-мажор: вернуть ОДОБРЕННУЮ запись в работу — статус 'approved' → 'open', снятие врача. */
+export function returnVaccinationToWork(id: number): ReturnToWorkResult {
+  return returnToWork('vaccinations', id);
 }
 
 export interface VaccinationExportFilter {

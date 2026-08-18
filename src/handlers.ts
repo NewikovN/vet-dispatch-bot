@@ -16,13 +16,23 @@ import {
   renderReportMenuKeyboard,
 } from './adapters/max/cardView.js';
 
-import { publishRequest, takeRequest, approveTake, rejectTake, cancelOpenRequest, startClosing, finishClosing } from './domain/requestService.js';
+import {
+  publishRequest,
+  takeRequest,
+  approveTake,
+  rejectTake,
+  cancelOpenRequest,
+  returnRequestToWork,
+  startClosing,
+  finishClosing,
+} from './domain/requestService.js';
 import {
   publishVaccination,
   takeVaccination,
   approveVaccinationTake,
   rejectVaccinationTake,
   cancelOpenVaccination,
+  returnVaccinationToWork,
   startClosingVaccination,
   finishClosingVaccination,
 } from './domain/vaccinationService.js';
@@ -709,14 +719,14 @@ bot.on('message_callback', async (ctx) => {
     return;
   }
 
-  const ACTIONS = ['take', 'approve', 'reject', 'cancel', 'close'] as const;
+  const ACTIONS = ['take', 'approve', 'reject', 'cancel', 'return', 'close'] as const;
   if (!(ACTIONS as readonly string[]).includes(action)) {
     await messenger.answerCallback(eventId, 'Неизвестное действие.');
     return;
   }
 
-  // take/approve/reject/cancel — по messageId карточки (см. resolveEntityKind); close (кнопка в
-  // личке врача) messageId не хранит — резервный путь по id внутри самой resolveEntityKind.
+  // take/approve/reject/cancel/return — по messageId карточки (см. resolveEntityKind); close
+  // (кнопка в личке врача) messageId не хранит — резервный путь по id внутри самой resolveEntityKind.
   const cardMessageId = ctx.messageId != null ? String(ctx.messageId) : undefined;
   const kind = resolveEntityKind(requestId, cardMessageId);
 
@@ -739,6 +749,9 @@ bot.on('message_callback', async (ctx) => {
       case 'cancel':
         await cancelOpenRequest(messenger, requestId, userId, eventId);
         break;
+      case 'return':
+        await returnRequestToWork(messenger, requestId, userId, eventId);
+        break;
       case 'close':
         await startClosing(messenger, requestId, userId, eventId);
         break;
@@ -758,6 +771,9 @@ bot.on('message_callback', async (ctx) => {
       break;
     case 'cancel':
       await cancelOpenVaccination(messenger, requestId, userId, eventId);
+      break;
+    case 'return':
+      await returnVaccinationToWork(messenger, requestId, userId, eventId);
       break;
     case 'close':
       await startClosingVaccination(messenger, requestId, userId, eventId);
