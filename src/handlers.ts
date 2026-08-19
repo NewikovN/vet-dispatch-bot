@@ -36,7 +36,8 @@ import {
   startClosingVaccination,
   finishClosingVaccination,
 } from './domain/vaccinationService.js';
-import { canCreateRequest, canManageRoles, canManageVaccinations, type Role } from './domain/models.js';
+import { canCreateRequest, canManageRoles, canManageVaccinations, canViewStatus, type Role } from './domain/models.js';
+import { buildActiveStatusMessage } from './domain/statusService.js';
 import {
   getAwaitedRequest,
   getAwaitedVaccination,
@@ -291,6 +292,7 @@ bot.on('message_created', async (ctx) => {
   if (text.startsWith('/')) {
     const me = getUser(userId);
     const isDirector = canManageRoles(me?.role ?? null);
+    const canSeeStatus = canViewStatus(me?.role ?? null);
     const [cmd, arg1, arg2] = text.split(/\s+/);
 
     if (cmd === '/помощь' || cmd === '/start' || cmd === '/начать') {
@@ -324,6 +326,7 @@ bot.on('message_created', async (ctx) => {
         lines.push('/города — привязанные чаты по городам');
         lines.push('/привязать <Город> работа|управление — команда в самом групповом чате');
         lines.push('/отчет — выгрузка заявок в Excel (кнопки: полный / по направлению / по дате / направление+дата)');
+        lines.push('/статус — активные заявки и вакцинации (открытые и в работе у врачей)');
       }
 
       await messenger.sendPrivate(userId, lines.join('\n'));
@@ -387,6 +390,11 @@ bot.on('message_created', async (ctx) => {
         (c) => `${c.city}: работа=${c.workChatId ?? '⚠️ не задан'}, управление=${c.manageChatId ?? '⚠️ не задан'}`,
       );
       await messenger.sendPrivate(userId, lines.join('\n'));
+      return;
+    }
+
+    if (cmd === '/статус' && canSeeStatus) {
+      await messenger.sendPrivate(userId, buildActiveStatusMessage());
       return;
     }
 

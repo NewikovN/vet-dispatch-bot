@@ -121,6 +121,20 @@ export function returnVaccinationToWork(id: number): ReturnToWorkResult {
   return returnToWork('vaccinations', id);
 }
 
+/** Голый id+статус активной (не closed/cancelled) записи — для сводки /статус, без лишних полей. */
+export interface ActiveItem {
+  id: number;
+  status: Vaccination['status'];
+}
+
+/** Записи в статусах 'open'/'taken'/'approved', по возрастанию id — для сводки /статус. */
+export function listActiveVaccinations(): ActiveItem[] {
+  const rows = db
+    .prepare(`SELECT id, status FROM vaccinations WHERE status IN ('open', 'taken', 'approved') ORDER BY id`)
+    .all() as ActiveItem[];
+  return rows;
+}
+
 export interface VaccinationExportFilter {
   /** vaccination_date (колонка date) >= from (ISO-строка, включительно) */
   from?: string;

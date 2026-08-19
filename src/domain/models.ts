@@ -117,3 +117,13 @@ export function canManageVaccinations(role: Role | null): boolean {
 export function canReturnToWork(role: Role | null): boolean {
   return role === 'director';
 }
+
+/**
+ * Сводка активных заявок/вакцинаций (/статус) — совпадает по кругу лиц с canManageRoles
+ * (только директор), но НЕ переиспользует её: смысл действия другой (просмотр текущей
+ * загрузки, а не управление персоналом), права могут разойтись независимо друг от друга —
+ * тот же принцип, что развёл canReturnToWork и canApprove.
+ */
+export function canViewStatus(role: Role | null): boolean {
+  return role === 'director';
+}
