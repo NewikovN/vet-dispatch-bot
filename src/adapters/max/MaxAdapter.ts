@@ -57,6 +57,11 @@ export class MaxAdapter implements Messenger {
     });
   }
 
+  /** См. комментарий у sendChatMessage в ports/Messenger.ts — простой текст, без клавиатуры. */
+  async sendChatMessage(chatId: string, text: string): Promise<void> {
+    await this.api.sendMessageToChat(Number(chatId), text, { attachments: [] });
+  }
+
   /** dmChatId здесь = MAX userId врача: личка шлётся через sendMessageToUser, а не через chat_id */
   async sendPrivate(dmChatId: string, text: string, requestId?: number): Promise<void> {
     const kb = requestId != null ? renderPrivateKeyboard(requestId) : undefined;

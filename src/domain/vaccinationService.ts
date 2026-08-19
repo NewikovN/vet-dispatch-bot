@@ -409,5 +409,14 @@ export async function finishClosingVaccination(
     await messenger.editManageCard(chats.manageChatId, vac.manageMessageId, toManageCard(vac, doctor.displayName));
   }
 
+  // Отдельное уведомление в управленческий чат — правку карточки легко пропустить в потоке
+  // других сообщений (та же причина, что у markGroupCardMoved).
+  if (chats?.manageChatId) {
+    await messenger.sendChatMessage(
+      chats.manageChatId,
+      `Запись №${vaccinationId} закрыта. Сумма чека: ${formatMoney(amount)}`,
+    );
+  }
+
   await messenger.sendPrivate(doctor.dmChatId!, `Запись №${vaccinationId} закрыта. Чек: ${formatMoney(amount)}`);
 }
