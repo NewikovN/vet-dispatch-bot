@@ -117,16 +117,21 @@ export function returnRequestToWork(id: number): ReturnToWorkResult {
   return returnToWork('requests', id);
 }
 
-/** Голый id+статус активной (не closed/cancelled) заявки — для сводки /статус, без лишних полей. */
+/**
+ * Голый id+статус+город активной (не closed/cancelled) заявки — для сводки /статус, без лишних
+ * полей. Город нужен, потому что нумерация сквозная по всем городам — без него по номеру не
+ * понять, в каком рабочем/управленческом чате искать заявку.
+ */
 export interface ActiveItem {
   id: number;
   status: RequestStatus;
+  city: string;
 }
 
 /** Заявки в статусах 'open'/'taken'/'approved', по возрастанию id — для сводки /статус. */
 export function listActiveRequests(): ActiveItem[] {
   const rows = db
-    .prepare(`SELECT id, status FROM requests WHERE status IN ('open', 'taken', 'approved') ORDER BY id`)
+    .prepare(`SELECT id, status, city FROM requests WHERE status IN ('open', 'taken', 'approved') ORDER BY id`)
     .all() as ActiveItem[];
   return rows;
 }

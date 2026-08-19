@@ -121,16 +121,21 @@ export function returnVaccinationToWork(id: number): ReturnToWorkResult {
   return returnToWork('vaccinations', id);
 }
 
-/** Голый id+статус активной (не closed/cancelled) записи — для сводки /статус, без лишних полей. */
+/**
+ * Голый id+статус+город активной (не closed/cancelled) записи — для сводки /статус, без лишних
+ * полей. Город нужен, потому что нумерация сквозная по всем городам — без него по номеру не
+ * понять, в каком рабочем/управленческом чате искать запись.
+ */
 export interface ActiveItem {
   id: number;
   status: Vaccination['status'];
+  city: string;
 }
 
 /** Записи в статусах 'open'/'taken'/'approved', по возрастанию id — для сводки /статус. */
 export function listActiveVaccinations(): ActiveItem[] {
   const rows = db
-    .prepare(`SELECT id, status FROM vaccinations WHERE status IN ('open', 'taken', 'approved') ORDER BY id`)
+    .prepare(`SELECT id, status, city FROM vaccinations WHERE status IN ('open', 'taken', 'approved') ORDER BY id`)
     .all() as ActiveItem[];
   return rows;
 }

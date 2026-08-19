@@ -6,18 +6,30 @@
 import { listActiveRequests } from '../db/requestsRepo.js';
 import { listActiveVaccinations } from '../db/vaccinationsRepo.js';
 
-function splitByStatus(items: { id: number; status: string }[]): { open: number[]; inWork: number[] } {
-  const open: number[] = [];
-  const inWork: number[] = [];
+interface ActiveEntry {
+  id: number;
+  city: string;
+}
+
+function splitByStatus(
+  items: { id: number; status: string; city: string }[],
+): { open: ActiveEntry[]; inWork: ActiveEntry[] } {
+  const open: ActiveEntry[] = [];
+  const inWork: ActiveEntry[] = [];
   for (const item of items) {
-    if (item.status === 'open') open.push(item.id);
-    else if (item.status === 'taken' || item.status === 'approved') inWork.push(item.id);
+    const entry = { id: item.id, city: item.city };
+    if (item.status === 'open') open.push(entry);
+    else if (item.status === 'taken' || item.status === 'approved') inWork.push(entry);
   }
   return { open, inWork };
 }
 
-function formatIds(ids: number[]): string {
-  return ids.map((id) => `№${id}`).join(', ');
+/**
+ * Нумерация сквозная по всем городам — рядом с номером указываем город, иначе не понять, в
+ * каком чате искать. Город после номера БЕЗ скобок — так явно попросил заказчик.
+ */
+function formatEntries(entries: ActiveEntry[]): string {
+  return entries.map((e) => `№${e.id} ${e.city}`).join(', ');
 }
 
 /**
@@ -34,15 +46,15 @@ export function buildActiveStatusMessage(): string {
 
   if (requests.open.length || requests.inWork.length) {
     lines.push('Заявки:');
-    if (requests.open.length) lines.push(`Открыты: ${formatIds(requests.open)}`);
-    if (requests.inWork.length) lines.push(`В работе у врачей: ${formatIds(requests.inWork)}`);
+    if (requests.open.length) lines.push(`Открыты: ${formatEntries(requests.open)}`);
+    if (requests.inWork.length) lines.push(`В работе у врачей: ${formatEntries(requests.inWork)}`);
   }
 
   if (vaccinations.open.length || vaccinations.inWork.length) {
     if (lines.length) lines.push('');
     lines.push('Вакцинации:');
-    if (vaccinations.open.length) lines.push(`Открыты: ${formatIds(vaccinations.open)}`);
-    if (vaccinations.inWork.length) lines.push(`В работе у врачей: ${formatIds(vaccinations.inWork)}`);
+    if (vaccinations.open.length) lines.push(`Открыты: ${formatEntries(vaccinations.open)}`);
+    if (vaccinations.inWork.length) lines.push(`В работе у врачей: ${formatEntries(vaccinations.inWork)}`);
   }
 
   return lines.length ? lines.join('\n') : 'Нет активных заявок';
