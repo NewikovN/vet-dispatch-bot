@@ -414,7 +414,7 @@ export async function finishClosingVaccination(
   if (chats?.manageChatId) {
     await messenger.sendChatMessage(
       chats.manageChatId,
-      `Запись №${vaccinationId} закрыта. Сумма чека: ${formatMoney(amount)}`,
+      `Запись №${vaccinationId} (${vac.city}) закрыта врачом ${doctor.displayName}. Сумма чека: ${formatMoney(amount)}`,
     );
   }
 

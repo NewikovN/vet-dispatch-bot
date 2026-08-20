@@ -390,7 +390,7 @@ export async function finishClosing(
   if (chats?.manageChatId) {
     await messenger.sendChatMessage(
       chats.manageChatId,
-      `Заявка №${requestId} закрыта. Сумма чека: ${formatMoney(amount)}`,
+      `Заявка №${requestId} (${req.city}) закрыта врачом ${doctor.displayName}. Сумма чека: ${formatMoney(amount)}`,
     );
   }
 
