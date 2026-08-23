@@ -30,6 +30,7 @@ function toGroupCard(req: Request): RequestCard {
     problem: req.problem,
     priceNote: req.priceNote,
     status: req.status,
+    createdByName: getUser(req.createdBy)?.displayName,
   };
 }
 
@@ -53,6 +54,7 @@ export function toManageCard(req: Request, doctorName?: string): RequestCard {
     doctorName,
     checkAmount: req.checkAmount ?? undefined,
     clientContacts: req.clientContacts,
+    createdByName: getUser(req.createdBy)?.displayName,
   };
 }
 

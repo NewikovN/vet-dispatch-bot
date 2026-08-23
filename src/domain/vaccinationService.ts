@@ -50,6 +50,7 @@ function toGroupCard(vac: Vaccination): RequestCard {
     status: vac.status,
     vaccineType: vac.vaccineType,
     nextDate: vac.nextDate,
+    createdByName: getUser(vac.createdBy)?.displayName,
   };
 }
 
@@ -75,6 +76,7 @@ export function toManageCard(vac: Vaccination, doctorName?: string): RequestCard
     vaccineType: vac.vaccineType,
     nextDate: vac.nextDate,
     clientContacts: vac.clientContacts,
+    createdByName: getUser(vac.createdBy)?.displayName,
   };
 }
 

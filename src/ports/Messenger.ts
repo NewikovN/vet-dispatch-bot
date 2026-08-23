@@ -8,6 +8,13 @@ export interface RequestCard {
   problem: string;
   priceNote: string;
   status: 'open' | 'taken' | 'approved' | 'closed' | 'cancelled';
+  /**
+   * Кто завёл заявку/вакцинацию (диспетчер/управляющий/директор) — видно ВСЕГДА, в обоих
+   * чатах (заказчик просил не только в управленческом). Заполняется в toGroupCard/toManageCard
+   * резолвом requests.created_by/vaccinations.created_by через getUser — отдельного поля в БД
+   * не заводили, created_by уже хранился, просто имя не подтягивалось.
+   */
+  createdByName?: string;
   doctorName?: string;
   checkAmount?: number;
   /** Только у карточки вакцинации (vaccinationService.ts) — заявке не задаются. */

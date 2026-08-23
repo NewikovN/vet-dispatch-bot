@@ -19,11 +19,19 @@ function renderHeaderLines(card: RequestCard): string[] {
   const lines = [
     isVaccination ? `💉 Вакцинация №${card.requestId}` : `📋 Заявка №${card.requestId}`,
     ``,
+  ];
+
+  // Кто завёл заявку/вакцинацию — сразу после заголовка, рядом с остальными «шапочными»
+  // фактами (дата/город/адрес), а не в конце у статуса: это атрибут самой записи (кто её
+  // зарегистрировал), а не текущего состояния — незачем перечитывать всю карточку, чтобы найти.
+  if (card.createdByName) lines.push(`Создал: ${card.createdByName}`);
+
+  lines.push(
     `Дата: ${card.date}`,
     `Город: ${card.city}`,
     `Адрес: ${card.address}`,
     `Животное: ${card.animal}`,
-  ];
+  );
 
   if (isVaccination) {
     lines.push(`Вакцина: ${card.vaccineType}`);
