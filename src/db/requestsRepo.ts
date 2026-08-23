@@ -145,8 +145,10 @@ export interface ExportFilter {
 }
 
 /**
- * Строка для Excel-отчёта: заявка + имя принявшего врача (джойн с users). Контакты клиента
- * ВКЛЮЧЕНЫ (решение заказчика) — так же, как уже сделано для отчёта по вакцинам.
+ * Строка для Excel-отчёта: заявка + имя принявшего врача (джойн с users по assigned_doctor_id)
+ * + имя заведшего заявку (джойн с users по created_by) — тот же паттерн, что уже сделан для
+ * отчёта по вакцинам (VaccinationExportRow.createdByName в vaccinationsRepo.ts). Контакты
+ * клиента ВКЛЮЧЕНЫ (решение заказчика) — так же, как уже сделано для отчёта по вакцинам.
  */
 export interface ExportRow {
   id: number;
@@ -162,6 +164,7 @@ export interface ExportRow {
   takenAt: string | null;
   approvedAt: string | null;
   closedAt: string | null;
+  createdByName: string | null;
 }
 
 /**
@@ -192,9 +195,10 @@ export function listRequestsForExport(filter: ExportFilter = {}): ExportRow[] {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const rows = db.prepare(`
-    SELECT r.*, u.display_name AS doctor_name
+    SELECT r.*, u.display_name AS doctor_name, c.display_name AS created_by_name
     FROM requests r
     LEFT JOIN users u ON u.user_id = r.assigned_doctor_id
+    LEFT JOIN users c ON c.user_id = r.created_by
     ${where}
     ORDER BY r.created_at
   `).all(params) as any[];
@@ -217,5 +221,6 @@ function toExportRow(row: any): ExportRow {
     takenAt: row.taken_at,
     approvedAt: row.approved_at,
     closedAt: row.closed_at,
+    createdByName: row.created_by_name ?? null,
   };
 }

@@ -39,6 +39,7 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
     { header: 'Принята', key: 'takenAt', width: 20 },
     { header: 'Одобрена', key: 'approvedAt', width: 20 },
     { header: 'Закрыта', key: 'closedAt', width: 20 },
+    { header: 'Кто добавил', key: 'createdByName', width: 20 },
   ];
 
   sheet.getRow(1).font = { bold: true };
@@ -58,6 +59,7 @@ export async function generateRequestsXlsx(filter: ExportFilter = {}): Promise<B
       takenAt: formatMsk(r.takenAt),
       approvedAt: formatMsk(r.approvedAt),
       closedAt: formatMsk(r.closedAt),
+      createdByName: r.createdByName ?? '',
     });
   }
 
