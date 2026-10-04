@@ -77,6 +77,8 @@ export function toManageCard(vac: Vaccination, doctorName?: string): RequestCard
     nextDate: vac.nextDate,
     clientContacts: vac.clientContacts,
     createdByName: getUser(vac.createdBy)?.displayName,
+    takenAt: vac.takenAt,
+    closedAt: vac.closedAt,
   };
 }
 

@@ -55,6 +55,8 @@ export function toManageCard(req: Request, doctorName?: string): RequestCard {
     checkAmount: req.checkAmount ?? undefined,
     clientContacts: req.clientContacts,
     createdByName: getUser(req.createdBy)?.displayName,
+    takenAt: req.takenAt,
+    closedAt: req.closedAt,
   };
 }
 

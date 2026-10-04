@@ -27,6 +27,14 @@ export interface RequestCard {
    * только после одобрения.
    */
   clientContacts?: string;
+  /**
+   * ISO UTC из requests.taken_at/vaccinations.taken_at и closed_at. Только у управленческой
+   * карточки (toManageCard) — врачам в рабочем чате и в личке время не показываем. Форматирует
+   * их адаптер (cardView.renderManageCardText через formatMsk), домен отдаёт сырые ISO-строки:
+   * «ДД.ММ.ГГГГ ЧЧ:ММ в МСК» — это представление, а не доменный факт.
+   */
+  takenAt?: string | null;
+  closedAt?: string | null;
 }
 
 export interface Messenger {

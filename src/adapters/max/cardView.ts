@@ -1,6 +1,7 @@
 import { Keyboard } from '@maxhub/max-bot-api';
 import type { RequestCard } from '../../ports/Messenger.js';
 import { formatMoney } from '../../domain/money.js';
+import { formatMsk } from '../../domain/datetime.js';
 
 type InlineKeyboard = ReturnType<typeof Keyboard.inlineKeyboard>;
 
@@ -97,6 +98,15 @@ export function renderManageCardText(card: RequestCard): string {
       lines.push('🚫 Отменена');
       break;
   }
+
+  // Время принятия/закрытия — ДД.ММ.ГГГГ ЧЧ:ММ в МСК, тот же formatMsk, что в Excel-отчётах.
+  // Сразу под строкой статуса: это хронология самой заявки, а не отдельный блок. Показываем
+  // только там, где значение есть (taken_at обнуляется при отклонении — см. workflowRepo.ts),
+  // поэтому у свободной/отменённой заявки строк просто не будет.
+  const takenAt = formatMsk(card.takenAt);
+  if (takenAt) lines.push(`Принята: ${takenAt}`);
+  const closedAt = formatMsk(card.closedAt);
+  if (closedAt) lines.push(`Закрыта: ${closedAt}`);
 
   if (card.clientContacts) {
     lines.push('');
