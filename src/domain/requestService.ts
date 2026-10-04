@@ -222,7 +222,7 @@ export async function rejectTake(
   await messenger.answerCallback(eventId, 'Заявка отклонена и снова открыта');
 }
 
-/** Диспетчер/управляющий/директор отменил ОТКРЫТУЮ (ещё не принятую врачом) заявку */
+/** Управляющий/директор отменил ОТКРЫТУЮ (ещё не принятую врачом) заявку */
 export async function cancelOpenRequest(
   messenger: Messenger,
   requestId: number,
@@ -232,7 +232,7 @@ export async function cancelOpenRequest(
   const actor = getUser(actorId);
 
   if (!canCancel(actor?.role ?? null)) {
-    await messenger.answerCallback(eventId, 'Отменять заявки может диспетчер, управляющий или директор');
+    await messenger.answerCallback(eventId, 'Отменять заявки может только управляющий или директор');
     return;
   }
 

@@ -99,9 +99,16 @@ export function canSeeDetails(role: Role | null): boolean {
   return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
 
-/** Отменить можно только ОТКРЫТУЮ (ещё не принятую врачом) заявку — та же роль, что и создаёт. */
+/**
+ * Отменить можно только ОТКРЫТУЮ (ещё не принятую врачом) заявку/вакцинацию, и только
+ * директору с управляющим — уточнение заказчика: диспетчер заявку заводит, но снимать её
+ * с публикации не должен. НЕ переиспользует canApprove/canSeeDetails (там диспетчер есть)
+ * и не объединена с canManageVaccinations, хоть круг лиц сейчас и совпадает: смысл другой
+ * (отмена опубликованной записи против ведения учёта вакцинаций), права могут разойтись —
+ * тот же принцип, что развёл canReturnToWork и canApprove.
+ */
 export function canCancel(role: Role | null): boolean {
-  return role === 'director' || role === 'manager' || role === 'dispatcher';
+  return role === 'director' || role === 'manager';
 }
 
 /** Учёт вакцинаций — отдельная сущность, не связанная с заявками. Ведут директор и управляющий. */

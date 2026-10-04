@@ -244,7 +244,7 @@ export async function rejectVaccinationTake(
   await messenger.answerCallback(eventId, 'Запись отклонена и снова открыта');
 }
 
-/** Диспетчер/управляющий/директор отменил ОТКРЫТУЮ (ещё не принятую врачом) запись */
+/** Управляющий/директор отменил ОТКРЫТУЮ (ещё не принятую врачом) запись */
 export async function cancelOpenVaccination(
   messenger: Messenger,
   vaccinationId: number,
@@ -254,7 +254,7 @@ export async function cancelOpenVaccination(
   const actor = getUser(actorId);
 
   if (!canCancel(actor?.role ?? null)) {
-    await messenger.answerCallback(eventId, 'Отменять записи о вакцинации может диспетчер, управляющий или директор');
+    await messenger.answerCallback(eventId, 'Отменять записи о вакцинации может только управляющий или директор');
     return;
   }
 
