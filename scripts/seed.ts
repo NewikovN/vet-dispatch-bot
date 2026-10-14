@@ -272,7 +272,7 @@ insertAll(rows);
 // Отдельная ТАБЛИЦА, не связана с requests (жёсткое требование заказчика — не сливать), но с
 // тем же жизненным циклом, что и заявка (open/taken/approved/closed/cancelled) + те же общие
 // поля (address/problem/priceNote), плюс два собственных: vaccineType, nextDate. created_by —
-// из тех же seed-пользователей, но только директор/управляющий (canManageVaccinations,
+// из тех же seed-пользователей, но только директор/управляющий/диспетчер (canManageVaccinations,
 // создаёт запись) — так же, как ведёт бот; кто ПРИНЯЛ и ЗАКРЫЛ — уже врач (assignedDoctorId),
 // как у заявки.
 const VACCINE_TYPES = ['Нобивак Трикет', 'Нобивак Рабиес', 'Мультикан-8', 'Рабизин', 'Пуревакс'];
@@ -296,9 +296,11 @@ const VACCINATION_STATUS_CYCLE = [
   'taken',
 ] as const;
 
-const vaccinationManagers = USERS.filter((u) => u.role === 'director' || u.role === 'manager');
+const vaccinationManagers = USERS.filter(
+  (u) => u.role === 'director' || u.role === 'manager' || u.role === 'dispatcher',
+);
 
-/** "16.07.2026" — тот же вид, что вводит директор/управляющий в /вакцина боту */
+/** "16.07.2026" — тот же вид, что вводит директор/управляющий/диспетчер в /вакцина боту */
 function ddmmyyyy(year: number, month: number, day: number): string {
   return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`;
 }

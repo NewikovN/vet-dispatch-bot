@@ -540,7 +540,7 @@ bot.on('message_created', async (ctx) => {
   if (text === '/вакцина') {
     const user = getUser(userId);
     if (!canManageVaccinations(user?.role ?? null)) {
-      await messenger.sendPrivate(userId, 'Учёт вакцинаций ведут директор и управляющий.');
+      await messenger.sendPrivate(userId, 'Учёт вакцинаций ведут директор, управляющий и диспетчер.');
       return;
     }
 

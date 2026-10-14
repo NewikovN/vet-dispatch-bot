@@ -111,9 +111,14 @@ export function canCancel(role: Role | null): boolean {
   return role === 'director' || role === 'manager';
 }
 
-/** Учёт вакцинаций — отдельная сущность, не связанная с заявками. Ведут директор и управляющий. */
+/**
+ * Учёт вакцинаций — отдельная сущность, не связанная с заявками. Ведут директор,
+ * управляющий и диспетчер (уточнение заказчика: заводить запись о вакцинации может тот же
+ * круг лиц, что создаёт заявки). Отчёт по вакцинациям при этом остаётся только у директора
+ * (canManageRoles) — ведение учёта и выгрузка учёта разведены намеренно.
+ */
 export function canManageVaccinations(role: Role | null): boolean {
-  return role === 'director' || role === 'manager';
+  return role === 'director' || role === 'manager' || role === 'dispatcher';
 }
 
 /**
