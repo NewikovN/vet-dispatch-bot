@@ -23,6 +23,7 @@ import {
   rejectTake,
   cancelOpenRequest,
   returnRequestToWork,
+  restoreCancelledRequest,
   startClosing,
   finishClosing,
 } from './domain/requestService.js';
@@ -33,6 +34,7 @@ import {
   rejectVaccinationTake,
   cancelOpenVaccination,
   returnVaccinationToWork,
+  restoreCancelledVaccination,
   startClosingVaccination,
   finishClosingVaccination,
 } from './domain/vaccinationService.js';
@@ -727,13 +729,13 @@ bot.on('message_callback', async (ctx) => {
     return;
   }
 
-  const ACTIONS = ['take', 'approve', 'reject', 'cancel', 'return', 'close'] as const;
+  const ACTIONS = ['take', 'approve', 'reject', 'cancel', 'return', 'restore', 'close'] as const;
   if (!(ACTIONS as readonly string[]).includes(action)) {
     await messenger.answerCallback(eventId, 'Неизвестное действие.');
     return;
   }
 
-  // take/approve/reject/cancel/return — по messageId карточки (см. resolveEntityKind); close
+  // take/approve/reject/cancel/return/restore — по messageId карточки (см. resolveEntityKind); close
   // (кнопка в личке врача) messageId не хранит — резервный путь по id внутри самой resolveEntityKind.
   const cardMessageId = ctx.messageId != null ? String(ctx.messageId) : undefined;
   const kind = resolveEntityKind(requestId, cardMessageId);
@@ -760,6 +762,9 @@ bot.on('message_callback', async (ctx) => {
       case 'return':
         await returnRequestToWork(messenger, requestId, userId, eventId);
         break;
+      case 'restore':
+        await restoreCancelledRequest(messenger, requestId, userId, eventId);
+        break;
       case 'close':
         await startClosing(messenger, requestId, userId, eventId);
         break;
@@ -782,6 +787,9 @@ bot.on('message_callback', async (ctx) => {
       break;
     case 'return':
       await returnVaccinationToWork(messenger, requestId, userId, eventId);
+      break;
+    case 'restore':
+      await restoreCancelledVaccination(messenger, requestId, userId, eventId);
       break;
     case 'close':
       await startClosingVaccination(messenger, requestId, userId, eventId);

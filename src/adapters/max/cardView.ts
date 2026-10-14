@@ -144,7 +144,9 @@ export function renderWorkKeyboard(card: RequestCard): InlineKeyboard | undefine
 /**
  * Клавиатура управленческого чата: пока заявка ОТКРЫТА (никто не принял) — «Отменить»; пока
  * ждёт решения (кто-то принял) — «Одобрить»/«Отклонить»; ОДОБРЕНА (до закрытия) — «Вернуть в
- * работу» (форс-мажор — врач не может приехать); иначе (закрыта/отменена) — без кнопок.
+ * работу» (форс-мажор — врач не может приехать); ОТМЕНЕНА — «Вернуть в работу» (передумали,
+ * заявка снова нужна; payload другой — restore вместо return, это переход с другого статуса,
+ * см. workflowRepo.ts); закрыта — без кнопок.
  */
 export function renderManageKeyboard(card: RequestCard): InlineKeyboard | undefined {
   if (card.status === 'open') {
@@ -165,6 +167,12 @@ export function renderManageKeyboard(card: RequestCard): InlineKeyboard | undefi
   if (card.status === 'approved') {
     return Keyboard.inlineKeyboard([
       [Keyboard.button.callback('Вернуть в бот', `return:${card.requestId}`, { intent: 'negative' })],
+    ]);
+  }
+
+  if (card.status === 'cancelled') {
+    return Keyboard.inlineKeyboard([
+      [Keyboard.button.callback('Вернуть в работу', `restore:${card.requestId}`, { intent: 'positive' })],
     ]);
   }
 

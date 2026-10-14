@@ -10,6 +10,7 @@ import {
   rejectRequest,
   cancelRequest,
   returnRequestToWork as returnRequestToWorkDb,
+  restoreRequest as restoreRequestDb,
   setGroupMessageId,
   setManageMessageId,
   type NewRequest,
@@ -328,6 +329,59 @@ export async function returnRequestToWork(
 
   if (previousDoctor?.dmChatId) {
     await messenger.sendPrivate(previousDoctor.dmChatId, `Заявка №${requestId} снята с вас и возвращена в работу.`);
+  }
+
+  await messenger.answerCallback(eventId, 'Заявка возвращена в работу');
+}
+
+/**
+ * ДИРЕКТОР вернул ОТМЕНЁННУЮ заявку в работу — статус 'cancelled' → 'open'. Права те же, что у
+ * возврата одобренной заявки (canReturnToWork — только директор): это одно и то же по смыслу
+ * действие «передумали, заявка снова нужна», разводить их отдельными функциями прав незачем.
+ *
+ * Рабочий чат: НЕ editGroupCard по старому сообщению — то помечено «Отменена» и остаётся в
+ * истории КАК ЕСТЬ (в отличие от возврата одобренной заявки, где старая карточка помечается
+ * «перемещена»: там она висела с актуальным статусом и ввела бы в заблуждение, а «Отменена» —
+ * честная запись о том, что с заявкой происходило). Заявка приходит врачам НОВЫМ сообщением
+ * внизу чата с кнопкой «Принять», group_message_id переключается на него — иначе кнопка на
+ * новом сообщении не нашла бы заявку по messageId (см. resolveEntityKind в handlers.ts).
+ */
+export async function restoreCancelledRequest(
+  messenger: Messenger,
+  requestId: number,
+  actorId: string,
+  eventId: string,
+): Promise<void> {
+  const actor = getUser(actorId);
+
+  if (!canReturnToWork(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Возвращать отменённую заявку в работу может только директор');
+    return;
+  }
+
+  const result = restoreRequestDb(requestId);
+
+  if (result === 'not_cancelled') {
+    await messenger.answerCallback(eventId, 'Вернуть в работу можно только отменённую заявку');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Заявка не найдена');
+    return;
+  }
+
+  const req = getRequest(requestId)!;
+  const chats = getCityChats(req.city);
+
+  // Новое сообщение внизу рабочего чата — с кнопкой «Принять». Старое («Отменена») не трогаем.
+  if (chats?.workChatId) {
+    const newGroupMessageId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(req));
+    setGroupMessageId(requestId, newGroupMessageId);
+  }
+
+  // Управленческая карточка — та же, на месте: снова «Свободна» и кнопка «Отменить»
+  if (chats?.manageChatId && req.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
   }
 
   await messenger.answerCallback(eventId, 'Заявка возвращена в работу');

@@ -7,12 +7,14 @@ import {
   cancel,
   close,
   returnToWork,
+  restore,
   type ClaimResult,
   type ApproveResult,
   type RejectResult,
   type CancelResult,
   type CloseResult,
   type ReturnToWorkResult,
+  type RestoreResult,
 } from './workflowRepo.js';
 
 export interface NewRequest {
@@ -115,6 +117,11 @@ export function closeRequest(id: number, doctorId: string, checkAmount: number):
 /** Форс-мажор: вернуть ОДОБРЕННУЮ заявку в работу — статус 'approved' → 'open', снятие врача. */
 export function returnRequestToWork(id: number): ReturnToWorkResult {
   return returnToWork('requests', id);
+}
+
+/** Вернуть ОТМЕНЁННУЮ заявку в работу — статус 'cancelled' → 'open', с очисткой cancelled_at. */
+export function restoreRequest(id: number): RestoreResult {
+  return restore('requests', id);
 }
 
 /**

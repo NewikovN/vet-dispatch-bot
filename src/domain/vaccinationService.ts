@@ -28,6 +28,7 @@ import {
   rejectVaccination,
   cancelVaccination,
   returnVaccinationToWork as returnVaccinationToWorkDb,
+  restoreVaccination as restoreVaccinationDb,
   setGroupMessageId,
   setManageMessageId,
   type NewVaccination,
@@ -350,6 +351,54 @@ export async function returnVaccinationToWork(
 
   if (previousDoctor?.dmChatId) {
     await messenger.sendPrivate(previousDoctor.dmChatId, `Запись №${vaccinationId} снята с вас и возвращена в работу.`);
+  }
+
+  await messenger.answerCallback(eventId, 'Запись возвращена в работу');
+}
+
+/**
+ * ДИРЕКТОР вернул ОТМЕНЁННУЮ запись в работу — статус 'cancelled' → 'open'. Симметрично
+ * restoreCancelledRequest в requestService.ts: права те же, что у возврата одобренной записи
+ * (canReturnToWork — только директор), старое сообщение «Отменена» в рабочем чате остаётся в
+ * истории как есть, а запись приходит врачам НОВЫМ сообщением внизу чата с кнопкой «Принять»
+ * (group_message_id переключается на него, иначе кнопка не нашла бы запись по messageId).
+ */
+export async function restoreCancelledVaccination(
+  messenger: Messenger,
+  vaccinationId: number,
+  actorId: string,
+  eventId: string,
+): Promise<void> {
+  const actor = getUser(actorId);
+
+  if (!canReturnToWork(actor?.role ?? null)) {
+    await messenger.answerCallback(eventId, 'Возвращать отменённую запись в работу может только директор');
+    return;
+  }
+
+  const result = restoreVaccinationDb(vaccinationId);
+
+  if (result === 'not_cancelled') {
+    await messenger.answerCallback(eventId, 'Вернуть в работу можно только отменённую запись');
+    return;
+  }
+  if (result === 'not_found') {
+    await messenger.answerCallback(eventId, 'Запись не найдена');
+    return;
+  }
+
+  const vac = getVaccination(vaccinationId)!;
+  const chats = getCityChats(vac.city);
+
+  // Новое сообщение внизу рабочего чата — с кнопкой «Принять». Старое («Отменена») не трогаем.
+  if (chats?.workChatId) {
+    const newGroupMessageId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(vac));
+    setGroupMessageId(vaccinationId, newGroupMessageId);
+  }
+
+  // Управленческая карточка — та же, на месте: снова «Свободна» и кнопка «Отменить»
+  if (chats?.manageChatId && vac.manageMessageId) {
+    await messenger.editManageCard(chats.manageChatId, vac.manageMessageId, toManageCard(vac));
   }
 
   await messenger.answerCallback(eventId, 'Запись возвращена в работу');

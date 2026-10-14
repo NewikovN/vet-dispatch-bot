@@ -7,12 +7,14 @@ import {
   cancel,
   close,
   returnToWork,
+  restore,
   type ClaimResult,
   type ApproveResult,
   type RejectResult,
   type CancelResult,
   type CloseResult,
   type ReturnToWorkResult,
+  type RestoreResult,
 } from './workflowRepo.js';
 
 /** Те же поля, что у заявки (NewRequest), плюс два собственных: vaccineType, nextDate. */
@@ -119,6 +121,11 @@ export function closeVaccination(id: number, doctorId: string, checkAmount: numb
 /** Форс-мажор: вернуть ОДОБРЕННУЮ запись в работу — статус 'approved' → 'open', снятие врача. */
 export function returnVaccinationToWork(id: number): ReturnToWorkResult {
   return returnToWork('vaccinations', id);
+}
+
+/** Вернуть ОТМЕНЁННУЮ запись в работу — статус 'cancelled' → 'open', с очисткой cancelled_at. */
+export function restoreVaccination(id: number): RestoreResult {
+  return restore('vaccinations', id);
 }
 
 /**

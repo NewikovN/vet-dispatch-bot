@@ -2,7 +2,7 @@
  * Общая механика атомарных переходов статуса — один и тот же SQL-паттерн
  * (UPDATE ... WHERE status = '...') нужен и requests, и vaccinations (после того как вакцинация
  * получила тот же жизненный цикл, что заявка): open → taken → approved → closed, либо
- * open → cancelled. Таблицы физически ОСТАЮТСЯ раздельными (жёсткое требование заказчика — не
+ * open → cancelled (и обратно, cancelled → open — возврат отменённой записи директором). Таблицы физически ОСТАЮТСЯ раздельными (жёсткое требование заказчика — не
  * сливать requests и vaccinations в одну) — этот модуль не хранение, а переиспользуемая логика
  * переходов, параметризованная именем таблицы.
  *
@@ -11,9 +11,9 @@
  * интерполяция в SQL безопасна. Тип ограничивает вызовы только двумя известными таблицами.
  *
  * requestsRepo.ts/vaccinationsRepo.ts оборачивают эти функции в свои claimRequest/approveRequest/
- * rejectRequest/cancelRequest/closeRequest/returnRequestToWork (и аналогично claimVaccination/...)
- * с предметными именами — наружу из бота эти функции (claim/approve/reject/cancel/close/
- * returnToWork) напрямую не зовутся, это внутренняя переиспользуемая деталь репозиториев.
+ * rejectRequest/cancelRequest/closeRequest/returnRequestToWork/restoreRequest (и аналогично
+ * claimVaccination/...) с предметными именами — наружу из бота эти функции (claim/approve/reject/
+ * cancel/close/returnToWork/restore) напрямую не зовутся, это внутренняя переиспользуемая деталь репозиториев.
  */
 import { db } from './index.js';
 
@@ -25,6 +25,7 @@ export type RejectResult = 'ok' | 'not_taken' | 'not_found';
 export type CancelResult = 'ok' | 'not_open' | 'not_found';
 export type CloseResult = 'ok' | 'not_approved' | 'wrong_doctor' | 'not_found';
 export type ReturnToWorkResult = 'ok' | 'not_approved' | 'not_found';
+export type RestoreResult = 'ok' | 'not_cancelled' | 'not_found';
 
 interface StatusRow {
   status: string;
@@ -121,6 +122,29 @@ export function returnToWork(table: WorkflowTable, id: number): ReturnToWorkResu
 
   if (info.changes === 1) return 'ok';
   return getStatusRow(table, id) ? 'not_approved' : 'not_found';
+}
+
+/**
+ * Форс-мажор наоборот: ОТМЕНЁННУЮ запись вернуть в работу — 'cancelled' → 'open', с очисткой
+ * cancelled_at. Отдельная функция, а не returnToWork с другим предусловием: там переход идёт с
+ * 'approved' и снимает врача (assigned_doctor_id/taken_at/approved_at), здесь снимать нечего —
+ * отменить можно только ещё не принятую запись (см. cancel выше), врача у неё нет. Новый статус
+ * не вводится: запись возвращается в уже существующий 'open' и живёт по тем же правилам, что
+ * свежесозданная.
+ */
+export function restore(table: WorkflowTable, id: number): RestoreResult {
+  const info = db
+    .prepare(
+      `
+      UPDATE ${table}
+      SET status = 'open', cancelled_at = NULL
+      WHERE id = ? AND status = 'cancelled'
+    `,
+    )
+    .run(id);
+
+  if (info.changes === 1) return 'ok';
+  return getStatusRow(table, id) ? 'not_cancelled' : 'not_found';
 }
 
 /** Закрытие: 'approved' → 'closed', только тем же врачом, что принял. */
