@@ -359,9 +359,8 @@ export async function returnVaccinationToWork(
 /**
  * ДИРЕКТОР вернул ОТМЕНЁННУЮ запись в работу — статус 'cancelled' → 'open'. Симметрично
  * restoreCancelledRequest в requestService.ts: права те же, что у возврата одобренной записи
- * (canReturnToWork — только директор), старое сообщение «Отменена» в рабочем чате остаётся в
- * истории как есть, а запись приходит врачам НОВЫМ сообщением внизу чата с кнопкой «Принять»
- * (group_message_id переключается на него, иначе кнопка не нашла бы запись по messageId).
+ * (canReturnToWork — только директор), а обе карточки — и рабочая, и управленческая — правятся
+ * НА МЕСТЕ, без нового сообщения в рабочем чате (решение заказчика), group_message_id не меняется.
  */
 export async function restoreCancelledVaccination(
   messenger: Messenger,
@@ -390,13 +389,12 @@ export async function restoreCancelledVaccination(
   const vac = getVaccination(vaccinationId)!;
   const chats = getCityChats(vac.city);
 
-  // Новое сообщение внизу рабочего чата — с кнопкой «Принять». Старое («Отменена») не трогаем.
-  if (chats?.workChatId) {
-    const newGroupMessageId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(vac));
-    setGroupMessageId(vaccinationId, newGroupMessageId);
+  // Рабочая карточка — та же, на месте: снова «Свободна» и кнопка «Принять»
+  if (chats?.workChatId && vac.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, vac.groupMessageId, toGroupCard(vac));
   }
 
-  // Управленческая карточка — та же, на месте: снова «Свободна» и кнопка «Отменить»
+  // Управленческая карточка — тоже на месте: снова «Свободна» и кнопка «Отменить»
   if (chats?.manageChatId && vac.manageMessageId) {
     await messenger.editManageCard(chats.manageChatId, vac.manageMessageId, toManageCard(vac));
   }

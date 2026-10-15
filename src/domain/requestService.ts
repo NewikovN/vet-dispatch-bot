@@ -339,12 +339,11 @@ export async function returnRequestToWork(
  * возврата одобренной заявки (canReturnToWork — только директор): это одно и то же по смыслу
  * действие «передумали, заявка снова нужна», разводить их отдельными функциями прав незачем.
  *
- * Рабочий чат: НЕ editGroupCard по старому сообщению — то помечено «Отменена» и остаётся в
- * истории КАК ЕСТЬ (в отличие от возврата одобренной заявки, где старая карточка помечается
- * «перемещена»: там она висела с актуальным статусом и ввела бы в заблуждение, а «Отменена» —
- * честная запись о том, что с заявкой происходило). Заявка приходит врачам НОВЫМ сообщением
- * внизу чата с кнопкой «Принять», group_message_id переключается на него — иначе кнопка на
- * новом сообщении не нашла бы заявку по messageId (см. resolveEntityKind в handlers.ts).
+ * Рабочий чат: карточка правится НА МЕСТЕ (editGroupCard) — снова «Свободна» и кнопка
+ * «Принять», group_message_id не меняется. Решение заказчика: новым сообщением внизу чата
+ * возврат отменённой заявки НЕ дублируется (в отличие от возврата ОДОБРЕННОЙ — там старая
+ * карточка помечается «перемещена» и уходит новая, см. returnRequestToWork выше: заявку уже
+ * видели в работе, нужно, чтобы врачи заметили, что она снова свободна).
  */
 export async function restoreCancelledRequest(
   messenger: Messenger,
@@ -373,13 +372,12 @@ export async function restoreCancelledRequest(
   const req = getRequest(requestId)!;
   const chats = getCityChats(req.city);
 
-  // Новое сообщение внизу рабочего чата — с кнопкой «Принять». Старое («Отменена») не трогаем.
-  if (chats?.workChatId) {
-    const newGroupMessageId = await messenger.sendGroupCard(chats.workChatId, toGroupCard(req));
-    setGroupMessageId(requestId, newGroupMessageId);
+  // Рабочая карточка — та же, на месте: снова «Свободна» и кнопка «Принять»
+  if (chats?.workChatId && req.groupMessageId) {
+    await messenger.editGroupCard(chats.workChatId, req.groupMessageId, toGroupCard(req));
   }
 
-  // Управленческая карточка — та же, на месте: снова «Свободна» и кнопка «Отменить»
+  // Управленческая карточка — тоже на месте: снова «Свободна» и кнопка «Отменить»
   if (chats?.manageChatId && req.manageMessageId) {
     await messenger.editManageCard(chats.manageChatId, req.manageMessageId, toManageCard(req));
   }
